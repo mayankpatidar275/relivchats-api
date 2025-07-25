@@ -1,6 +1,0 @@
-fastapi
-uvicorn[standard]
-qdrant-client
-python-dotenv
-httpx
-fastapi[all]

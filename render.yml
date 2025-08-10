@@ -1,9 +1,59 @@
+# Example Render.com blueprint for a FastAPI application
+# This blueprint defines how Render builds and deploys your Reliv Chats API.
+
 services:
-  # A Docker web service
-  - type: web
-    name: relivchats-api
-    runtime: python
-    plan: free
-    autoDeploy: false
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+  - type: web # This service is a web server
+    name: relivchats-api # Name of your service on Render
+    env: python # The environment runtime is Python
+
+    # Build command runs during the build phase (before deployment)
+    # It installs Python dependencies and then runs Alembic migrations.
+    # `alembic upgrade head` applies all pending migrations to your database.
+    buildCommand: "pip install -r requirements.txt && alembic upgrade head"
+
+    # Start command runs when your service starts up
+    # It uses uvicorn to run your FastAPI application.
+    # `app.main:app` refers to the FastAPI application instance named `app` in `app/main.py`.
+    # `0.0.0.0` makes the server accessible from outside the container.
+    # `$PORT` is an environment variable provided by Render.
+    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+
+    # Environment variables for your application.
+    # IMPORTANT: Use `fromSecret` for sensitive credentials (like database URLs, API keys)
+    # These secrets should be configured in your Render dashboard under "Environment" for this service.
+    envVars:
+      - key: DATABASE_URL
+        fromSecret: database-url # Maps to a secret named 'database-url' in Render
+      - key: QDRANT_URL
+        fromSecret: qdrant-url # Maps to a secret named 'qdrant-url' in Render
+      - key: QDRANT_API_KEY
+        fromSecret: qdrant-api-key # Maps to a secret named 'qdrant-api-key' in Render
+
+      # AWS S3 Credentials and Bucket Name (replace with your actual Render secret names)
+      - key: AWS_ACCESS_KEY_ID
+        fromSecret: aws-access-key-id
+      - key: AWS_SECRET_ACCESS_KEY
+        fromSecret: aws-secret-access-key
+      - key: S3_BUCKET_NAME
+        value: "your-relivchats-s3-bucket" # Replace with your actual S3 bucket name
+      - key: AWS_REGION
+        value: "us-east-1" # Replace with your AWS region (e.g., eu-central-1)
+
+      # Chat Limits - can also be secrets if they vary per environment
+      - key: MAX_UPLOAD_FILE_SIZE_MB
+        value: 5
+      - key: MAX_CHATS_PER_USER
+        value: 3
+
+      # Port is automatically set by Render, but explicitly defining it is good practice
+      - key: PORT
+        value: 8000
+# services:
+#   # A Docker web service
+#   - type: web
+#     name: relivchats-api
+#     runtime: python
+#     plan: free
+#     autoDeploy: false
+#     buildCommand: pip install -r requirements.txt
+#     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT

@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 import os
 from dotenv import load_dotenv
+from contextlib import asynccontextmanager
 
 # Load environment variables from .env file
 load_dotenv()
@@ -18,12 +19,30 @@ from app.models.chat import Chat, Message, AIChatConversation, AIMessage, Insigh
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# --- Database Initialization (using the modern lifespan event handler) ---
+# --- Database Initialization (for local development/testing without Alembic) ---
+# In a production environment, you'd solely rely on Alembic migrations.
+# This part is for convenience to create tables if they don't exist.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Handles startup and shutdown events.
+    """
+    async with engine.begin() as conn:
+        # Create all tables if they don't exist
+        # THIS SHOULD BE REMOVED OR PROTECTED IN PRODUCTION, USE ALEMBIC!
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables ensured (via create_all). For production, use Alembic migrations.")
+    yield
+    # No shutdown logic is needed for this example, but it would go here.
+
 app = FastAPI(
     title="Reliv Chats API",
     description="Backend API for Reliv Chats mobile app. Empathetic AI insights on WhatsApp chats.",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # CORS Middleware (adjust origins as needed for your frontend)
@@ -35,17 +54,6 @@ app.add_middleware(
     allow_methods=["*"], # Allow all HTTP methods
     allow_headers=["*"], # Allow all headers
 )
-
-# --- Database Initialization (for local development/testing without Alembic) ---
-# In a production environment, you'd solely rely on Alembic migrations.
-# This part is for convenience to create tables if they don't exist.
-@app.on_event("startup")
-async def startup_event():
-    async with engine.begin() as conn:
-        # Create all tables if they don't exist
-        # THIS SHOULD BE REMOVED OR PROTECTED IN PRODUCTION, USE ALEMBIC!
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables ensured (via create_all). For production, use Alembic migrations.")
 
 # --- API Routers ---
 app.include_router(api_router, prefix="/api/v1")

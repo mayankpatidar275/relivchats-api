@@ -13,3 +13,4 @@ python-magic # To detect file types (optional, but good for robust file handling
 boto3 # AWS SDK for S3
 # python-zipstream # For streaming zip content, if needed (or just use tempfile and shutil)
 # unzip-http is not a standard PyPI package, will rely on python's zipfile or external tools.
+alembic

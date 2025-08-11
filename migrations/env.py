@@ -28,6 +28,9 @@ if config.config_file_name is not None:
 from app.models.__init__ import Base # Import your Base
 target_metadata = Base.metadata
 
+# Set the SQLAlchemy URL from environment variable here
+# This is the crucial change!
+config.set_main_option("sqlalchemy.url", os.environ["DATABASE_URL"])
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
 # my_important_option = config.get_main_option("my_important_option")
@@ -68,8 +71,6 @@ def do_run_migrations(connection):
         # Uncomment to see the generated SQL in console.
         # compare_type=True,
         # render_as_batch=True, # For SQLite support, often not needed for Postgres
-        # For async, we need to wrap sync operations
-        fn=do_run_migrations, # Pass itself for async execution
     )
 
     with context.begin_transaction():
@@ -87,7 +88,8 @@ async def run_migrations_online() -> None:
             config.get_section(config.config_ini_section, {}),
             prefix="sqlalchemy.",
             poolclass=pool.NullPool,
-            future=True
+            future=True,
+            connect_args={"ssl": "require"}
         )
     )
 

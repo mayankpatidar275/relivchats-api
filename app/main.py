@@ -2,7 +2,6 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-import os
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 

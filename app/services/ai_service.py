@@ -2,8 +2,9 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from app.db.session import get_db
-from app.models.chat import AIChatConversation, AIMessage, Message, Chat
+from app.models.chat import AIChatConversation, AIMessage, Insight, Message, Chat
 from app.schemas.ai import AIChatRequest, AIMessageResponse, AIChatConversationResponse
+from app.schemas.chat import InsightResponse
 from app.services.qdrant_service import qdrant_service
 from datetime import datetime, timezone
 import logging

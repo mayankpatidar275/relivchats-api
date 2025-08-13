@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional, Tuple
+from typing import List, Dict, Tuple
 
 from app.db.session import get_db
 from app.schemas.chat import ChatResponse, MessageResponse, ParticipantSelectionResponse, InsightResponse

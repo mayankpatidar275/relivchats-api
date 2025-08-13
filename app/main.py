@@ -9,7 +9,9 @@ from contextlib import asynccontextmanager
 load_dotenv()
 
 from app.api.v1.endpoints import api_router # Use the combined router
-from app.db.session import engine, Base
+from app.db.session import engine
+from app.models.base import Base
+
 # Import all models to ensure Base.metadata discovers them for Alembic
 
 # Configure logging

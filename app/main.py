@@ -11,8 +11,6 @@ load_dotenv()
 from app.api.v1.endpoints import api_router # Use the combined router
 from app.db.session import engine, Base
 # Import all models to ensure Base.metadata discovers them for Alembic
-from app.models.user import User
-from app.models.chat import Chat, Message, AIChatConversation, AIMessage, Insight
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

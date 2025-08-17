@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+alembic
+psycopg2-binary  # For PostgreSQL database connection
+python-dotenv
+pydantic-settings # For structured settings management

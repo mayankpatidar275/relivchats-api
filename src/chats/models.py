@@ -8,9 +8,12 @@ class Chat(Base):
 
     id = Column(String, primary_key=True, index=True)
     user_id = Column(String, ForeignKey("users.user_id"), nullable=False)
-    title = Column(String, nullable=True) # E.g., The name of the chat group
+    title = Column(String, nullable=True)  # E.g., The name of the chat group
+    participants = Column(Text, nullable=True)  # JSON string of participant names
+    user_display_name = Column(String, nullable=True)  # User's selected display name
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
-    status = Column(String, default="processing") # 'processing', 'completed', 'failed'
+    status = Column(String, default="processing")  # 'processing', 'completed', 'failed'
+    error_log = Column(Text, nullable=True)  # Store parsing errors for debugging
 
     messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
     owner = relationship("User", back_populates="chats")

@@ -13,6 +13,10 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # `Base` is the superclass that all our SQLAlchemy models will inherit from.
 Base = declarative_base()
 
+# Import all models to ensure they're registered
+from .users import models as users_models
+from .chats import models as chats_models
+
 def get_db():
     db = SessionLocal()
     try:

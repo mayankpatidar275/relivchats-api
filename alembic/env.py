@@ -12,6 +12,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from src.database import Base
 from src.config import settings  # Import your settings
 from src.users.models import User  # Make sure to import all your models here
+from src.chats.models import Chat
+from src.chats.models import Message
 
 # this is the Alembic Config object
 config = context.config

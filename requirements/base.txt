@@ -6,3 +6,4 @@ psycopg2-binary  # For PostgreSQL database connection
 python-dotenv
 pydantic-settings # For structured settings management
 clerk-backend-api
+python-multipart

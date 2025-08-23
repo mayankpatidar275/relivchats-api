@@ -7,3 +7,4 @@ python-dotenv
 pydantic-settings # For structured settings management
 clerk-backend-api
 python-multipart
+whatstk>=2.7.0

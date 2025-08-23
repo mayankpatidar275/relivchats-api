@@ -10,4 +10,4 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
-    chats = relationship("Chat", back_populates="owner")
+    chats = relationship("Chat", back_populates="owner", cascade="all, delete-orphan")

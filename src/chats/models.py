@@ -7,7 +7,7 @@ class Chat(Base):
     __tablename__ = "chats"
 
     id = Column(String, primary_key=True, index=True)
-    user_id = Column(String, ForeignKey("users.user_id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=True)  # E.g., The name of the chat group
     participants = Column(Text, nullable=True)  # JSON string of participant names
     user_display_name = Column(String, nullable=True)  # User's selected display name
@@ -22,7 +22,7 @@ class Message(Base):
     __tablename__ = "messages"
 
     id = Column(String, primary_key=True, index=True)
-    chat_id = Column(String, ForeignKey("chats.id"), nullable=False)
+    chat_id = Column(String, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
     sender = Column(String, nullable=True)
     content = Column(Text, nullable=False)
     timestamp = Column(TIMESTAMP(timezone=True), nullable=False)

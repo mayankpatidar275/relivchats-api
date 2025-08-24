@@ -3,7 +3,7 @@ import shutil
 from pathlib import Path
 from typing import Annotated, List
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -23,12 +23,11 @@ router = APIRouter(
 
 @router.post("/upload", response_model=schemas.ChatUploadResponse)
 def upload_whatsapp_file(
-    background_tasks: BackgroundTasks,
     file: Annotated[UploadFile, File(...)],
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: Session = Depends(get_db)
 ):
-    """Upload and process WhatsApp chat file"""
+    """Upload and process WhatsApp chat file synchronously"""
     # 1. File Validation
     allowed_types = ["text/plain", "application/zip"]
     if file.content_type not in allowed_types:
@@ -45,6 +44,7 @@ def upload_whatsapp_file(
         )
 
     # 2. Save the file to a temporary location
+    file_path = None
     try:
         file_path = UPLOAD_FOLDER / file.filename
         with open(file_path, "wb") as buffer:
@@ -52,19 +52,118 @@ def upload_whatsapp_file(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
 
-    # 3. Create a chat entry in the database with 'processing' status
-    db_chat = service.create_chat(db, user_id=user_id)
-    
-    # 4. Add the background task to process the file
-    background_tasks.add_task(
-        service.process_whatsapp_file_background, 
-        chat_id=db_chat.id, 
-        file_path=str(file_path), 
-        db=db
-    )
+    try:
+        # 3. Create a chat entry in the database with 'processing' status
+        db_chat = service.create_chat(db, user_id=user_id)
+        
+        # 4. Process the file synchronously
+        processed_chat = service.process_whatsapp_file(
+            chat_id=db_chat.id,
+            file_path=str(file_path),
+            db=db
+        )
+        
+        # 5. Return the completed chat with participants
+        return schemas.ChatUploadResponse.from_orm(processed_chat)
+         
+    except Exception as e:
+        # Handle any processing errors
+        # Clean up the chat if it was created
+        if 'db_chat' in locals():
+            service.delete_chat(db, db_chat.id)
+        raise HTTPException(status_code=500, detail=f"Failed to process file: {e}")
+        
+    finally:
+        # 6. Clean up the temporary file
+        if file_path and file_path.exists():
+            try:
+                file_path.unlink()
+            except Exception as cleanup_error:
+                # Log the cleanup error but don't fail the request
+                print(f"Warning: Failed to clean up temp file {file_path}: {cleanup_error}")
 
-    # 5. Return a 202 Accepted response with the new chat's details
-    return schemas.ChatUploadResponse.from_orm(db_chat)
+
+# # Optional: Add a timeout-based hybrid endpoint for large files
+# @router.post("/upload-with-timeout", response_model=schemas.ChatUploadResponse)
+# async def upload_whatsapp_file_with_timeout(
+#     file: Annotated[UploadFile, File(...)],
+#     user_id: Annotated[str, Depends(get_current_user_id)],
+#     db: Session = Depends(get_db),
+#     timeout_seconds: int = 30
+# ):
+#     """Upload with timeout fallback to background processing"""
+#     import asyncio
+#     from concurrent.futures import ThreadPoolExecutor
+    
+#     # Same validation logic as above
+#     allowed_types = ["text/plain", "application/zip"]
+#     if file.content_type not in allowed_types:
+#         raise HTTPException(
+#             status_code=400,
+#             detail=f"Invalid file type. Only .txt or .zip files are allowed."
+#         )
+
+#     if file.size and file.size > settings.MAX_UPLOAD_SIZE_BYTES:
+#         raise HTTPException(
+#             status_code=413,
+#             detail=f"File too large. Maximum size is {settings.MAX_UPLOAD_SIZE_MB} MB."
+#         )
+
+#     # Save file
+#     file_path = None
+#     try:
+#         file_path = UPLOAD_FOLDER / file.filename
+#         with open(file_path, "wb") as buffer:
+#             shutil.copyfileobj(file.file, buffer)
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+
+#     try:
+#         db_chat = service.create_chat(db, user_id=user_id)
+        
+#         # Try processing with timeout
+#         with ThreadPoolExecutor() as executor:
+#             future = executor.submit(
+#                 service.process_whatsapp_file_sync,
+#                 db_chat.id,
+#                 str(file_path),
+#                 db
+#             )
+            
+#             try:
+#                 # Wait for completion with timeout
+#                 processed_chat = await asyncio.wait_for(
+#                     asyncio.wrap_future(future),
+#                     timeout=timeout_seconds
+#                 )
+#                 return schemas.ChatUploadResponse.from_orm(processed_chat)
+                
+#             except asyncio.TimeoutError:
+#                 # Fallback to background processing
+#                 # Update chat status to indicate background processing
+#                 service.update_chat_status(db, db_chat.id, "processing_background")
+                
+#                 # Start background task (you'd need to implement this)
+#                 # background_tasks.add_task(service.continue_processing, db_chat.id, str(file_path), db)
+                
+#                 return schemas.ChatUploadResponse(
+#                     id=db_chat.id,
+#                     status="processing_background",
+#                     message="File is large and is being processed in the background. You'll be notified when ready.",
+#                     participants=[]
+#                 )
+                
+#     except Exception as e:
+#         if 'db_chat' in locals():
+#             service.delete_chat(db, db_chat.id)
+#         raise HTTPException(status_code=500, detail=f"Failed to process file: {e}")
+        
+#     finally:
+#         if file_path and file_path.exists():
+#             try:
+#                 file_path.unlink()
+#             except Exception:
+#                 pass
 
 @router.get("/", response_model=List[schemas.ChatDetailsResponse])
 def get_user_chats(

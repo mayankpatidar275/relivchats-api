@@ -128,8 +128,8 @@ def save_messages_to_db(db: Session, chat_id: str, whatstk_chat) -> int:
     
     return len(messages)
 
-def process_whatsapp_file_background(chat_id: str, file_path: str, db: Session):
-    """Background task to process uploaded WhatsApp file"""
+def process_whatsapp_file(chat_id: str, file_path: str, db: Session):
+    """Process uploaded WhatsApp file"""
     chat = None
     error_message = ""
     
@@ -153,6 +153,8 @@ def process_whatsapp_file_background(chat_id: str, file_path: str, db: Session):
         
         db.commit()
         print(f"Successfully processed chat {chat_id}: {message_count} messages saved")
+
+        return chat
         
     except Exception as e:
         error_message = f"Failed to process WhatsApp file: {str(e)}"
@@ -170,6 +172,7 @@ def process_whatsapp_file_background(chat_id: str, file_path: str, db: Session):
         
         # Delete the chat completely
         delete_chat_completely(db, chat_id)
+        raise Exception(error_message)  # Re-raise so endpoint can handle it
         
     finally:
         # Always clean up the uploaded file

@@ -9,6 +9,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 import whatstk
+from fastapi import HTTPException, status
 
 from . import models
 from . import schemas
@@ -27,6 +28,23 @@ def get_chat_by_id(db: Session, chat_id: str):
 
 def get_user_chats(db: Session, user_id: str):
     return db.query(models.Chat).filter(models.Chat.user_id == user_id).all()
+
+def get_chat_messages(db: Session, chat_id: str, user_id: str):
+    messages = (
+        db.query(models.Message)
+        .join(models.Chat)
+        .filter(
+            models.Message.chat_id == chat_id,
+            models.Chat.user_id == user_id
+        )
+        .all()
+    )
+    if not messages:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have access to this chat."
+        )
+    return messages
 
 def update_user_display_name(db: Session, chat_id: str, user_id: str, display_name: str):
     chat = db.query(models.Chat).filter(

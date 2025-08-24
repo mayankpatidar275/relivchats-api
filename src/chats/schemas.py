@@ -57,3 +57,13 @@ class ChatDetailsResponse(BaseModel):
 
     class Config:
         from_attributes = True
+        
+class ChatMessagesResponse(BaseModel):
+    id: str
+    chat_id: str
+    sender: Optional[str] = None
+    content: str
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True

@@ -266,3 +266,16 @@ def get_chat_details(
         raise HTTPException(status_code=403, detail="Not authorized to access this chat")
     
     return schemas.ChatUploadResponse.from_orm(chat)
+
+@router.get("/{chat_id}/messages", response_model=List[schemas.ChatMessagesResponse])
+def get_user_chats(
+    chat_id: str,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    db: Session = Depends(get_db)
+):
+    """Get all chat messages"""
+    messages = service.get_chat_messages(db, chat_id, user_id)
+    return messages
+
+
+

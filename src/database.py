@@ -16,6 +16,7 @@ Base = declarative_base()
 # Import all models to ensure they're registered
 from .users import models as users_models
 from .chats import models as chats_models
+from .vector import models as vector_models
 
 def get_db():
     db = SessionLocal()

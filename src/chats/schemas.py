@@ -11,6 +11,9 @@ class ChatUploadResponse(BaseModel):
     user_display_name: Optional[str] = None
     created_at: datetime
     status: str
+    vector_status: str = "pending"
+    chunk_count: int = 0
+    indexed_at: Optional[datetime] = None
     error_log: Optional[str] = None
 
     class Config:
@@ -34,6 +37,9 @@ class ChatUploadResponse(BaseModel):
             user_display_name=db_chat.user_display_name,
             created_at=db_chat.created_at,
             status=db_chat.status,
+            vector_status=getattr(db_chat, 'vector_status', 'pending'),
+            chunk_count=getattr(db_chat, 'chunk_count', 0),
+            indexed_at=getattr(db_chat, 'indexed_at', None),
             error_log=db_chat.error_log
         )
 
@@ -53,6 +59,9 @@ class ChatDetailsResponse(BaseModel):
     user_display_name: Optional[str] = None
     created_at: datetime
     status: str
+    vector_status: str = "pending"
+    chunk_count: int = 0
+    indexed_at: Optional[datetime] = None
     message_count: int = 0
 
     class Config:
@@ -67,3 +76,15 @@ class ChatMessagesResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class VectorStatusResponse(BaseModel):
+    chat_id: str
+    vector_status: str
+    chunk_count: int
+    indexed_at: Optional[datetime] = None
+    is_searchable: bool
+
+    class Config:
+        from_attributes = True
+

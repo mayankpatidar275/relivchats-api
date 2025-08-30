@@ -57,12 +57,22 @@ def update_user_display_name(db: Session, chat_id: str, user_id: str, display_na
         db.refresh(chat)
     return chat
 
-def delete_chat_completely(db: Session, chat_id: str):
-    """Delete chat and all related messages"""
+def delete_chat(db: Session, chat_id: str):
+    """Delete chat and all related data (messages, chunks, vectors)"""
     try:
         chat = get_chat_by_id(db, chat_id)
         if chat:
-            db.delete(chat)  # Cascade will delete messages
+            # Import here to avoid circular imports
+            from ..vector.service import vector_service
+            
+            # Clean up vector data first
+            try:
+                vector_service.cleanup_failed_indexing(db, chat_id)
+            except Exception as e:
+                print(f"Warning: Failed to cleanup vector data for chat {chat_id}: {e}")
+            
+            # Delete chat (cascade will delete messages and chunks)
+            db.delete(chat)
             db.commit()
             return True
     except SQLAlchemyError as e:
@@ -147,7 +157,7 @@ def save_messages_to_db(db: Session, chat_id: str, whatstk_chat) -> int:
     return len(messages)
 
 def process_whatsapp_file(chat_id: str, file_path: str, db: Session):
-    """Process uploaded WhatsApp file"""
+    """Process WhatsApp file synchronously and trigger vector indexing"""
     chat = None
     error_message = ""
     
@@ -171,7 +181,10 @@ def process_whatsapp_file(chat_id: str, file_path: str, db: Session):
         
         db.commit()
         print(f"Successfully processed chat {chat_id}: {message_count} messages saved")
-
+        
+        # **NEW: Trigger vector indexing asynchronously**
+        trigger_vector_indexing(db, chat_id)
+        
         return chat
         
     except Exception as e:
@@ -189,9 +202,9 @@ def process_whatsapp_file(chat_id: str, file_path: str, db: Session):
                 pass  # If we can't even save the error, we'll just delete
         
         # Delete the chat completely
-        delete_chat_completely(db, chat_id)
+        delete_chat(db, chat_id)
         raise Exception(error_message)  # Re-raise so endpoint can handle it
-        
+   
     finally:
         # Always clean up the uploaded file
         try:
@@ -199,3 +212,22 @@ def process_whatsapp_file(chat_id: str, file_path: str, db: Session):
                 os.remove(file_path)
         except Exception as cleanup_error:
             print(f"Warning: Failed to clean up file {file_path}: {cleanup_error}")
+            
+def trigger_vector_indexing(db: Session, chat_id: str):
+    """Trigger vector indexing for a completed chat"""
+    try:
+        # Import here to avoid circular imports
+        from ..vector.service import vector_service
+        
+        print(f"Starting vector indexing for chat {chat_id}")
+        success = vector_service.create_chat_chunks(db, chat_id)
+        
+        if success:
+            print(f"Vector indexing completed successfully for chat {chat_id}")
+        else:
+            print(f"Vector indexing failed for chat {chat_id}")
+            
+    except Exception as e:
+        print(f"Error triggering vector indexing for chat {chat_id}: {e}")
+        # Don't raise the error - chat parsing was successful
+        # Vector indexing can be retried later

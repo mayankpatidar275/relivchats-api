@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, TIMESTAMP, ForeignKey, Text
+from sqlalchemy import Column, String, TIMESTAMP, ForeignKey, Text, Integer
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -14,8 +14,14 @@ class Chat(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     status = Column(String, default="processing")  # 'processing', 'completed', 'failed'
     error_log = Column(Text, nullable=True)  # Store parsing errors for debugging
+    
+    # Vector-related fields
+    vector_status = Column(String, default="pending")  # 'pending', 'indexing', 'completed', 'failed'
+    indexed_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    chunk_count = Column(Integer, default=0)
 
     messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
+    chunks = relationship("MessageChunk", back_populates="chat", cascade="all, delete-orphan")
     owner = relationship("User", back_populates="chats")
 
 class Message(Base):

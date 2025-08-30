@@ -111,7 +111,7 @@ class ConversationChunker:
         """Main chunking function"""
         if not messages:
             return []
-        print("messages: ", messages)
+        
         # Sort messages by timestamp
         messages.sort(key=lambda x: x.timestamp)
 
@@ -122,32 +122,38 @@ class ConversationChunker:
         for message in messages:
             # Check if we should start a new chunk
             if self.should_break_chunk(current_chunk, message):
-                # Finalize current chunk if it meets minimum size
+                # Finalize current chunk if it exists
                 if current_chunk:
                     chunk_text = self._format_messages_to_text(current_chunk)
-                    if self.estimate_tokens(chunk_text) >= self.min_chunk_size:
+                    chunk_tokens = self.estimate_tokens(chunk_text)
+                    
+                    if chunk_tokens >= self.min_chunk_size:
+                        # Chunk is big enough, save it and start fresh
                         chunks.append(ConversationChunk(
                             chunk_index=chunk_index,
                             messages=current_chunk.copy(),
                             chunk_text=chunk_text,
                             metadata=self._create_chunk_metadata(current_chunk),
-                            estimated_tokens=self.estimate_tokens(chunk_text)
+                            estimated_tokens=chunk_tokens
                         ))
                         chunk_index += 1
+                        # Start new chunk with current message
+                        current_chunk = [message]
                     else:
-                        # If chunk is too small, merge with next chunk
-                        # We'll handle this by not incrementing chunk_index
-                        pass
-
-                # Start new chunk
-                current_chunk = [message]
+                        # Chunk is too small - merge with next chunk instead of discarding
+                        # Keep all messages from small chunk and add new message
+                        current_chunk.append(message)
+                        # Don't increment chunk_index - we're continuing to build the same logical chunk
+                else:
+                    # No current chunk, start fresh
+                    current_chunk = [message]
             else:
+                # Continue building current chunk
                 current_chunk.append(message)
 
-        # Handle final chunk
+        # Handle final chunk - always include it regardless of size
         if current_chunk:
             chunk_text = self._format_messages_to_text(current_chunk)
-            # Always include the last chunk, even if it's small
             chunks.append(ConversationChunk(
                 chunk_index=chunk_index,
                 messages=current_chunk,
@@ -155,7 +161,7 @@ class ConversationChunker:
                 metadata=self._create_chunk_metadata(current_chunk),
                 estimated_tokens=self.estimate_tokens(chunk_text)
             ))
-        print("chunks: ",chunks)
+            
         return chunks
 
 def chunk_chat_messages(db_messages) -> List[ConversationChunk]:

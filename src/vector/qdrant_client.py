@@ -31,6 +31,12 @@ class QdrantVectorStore:
                         distance=Distance.COSINE,
                     ),
                 )
+                # 🔑 add index for chat_id
+                self.client.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name="chat_id",
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                )
                 print(f"Created Qdrant collection: {self.collection_name}")
         except Exception as e:
             print(f"Error ensuring collection exists: {e}")
@@ -52,7 +58,7 @@ class QdrantVectorStore:
                 PointStruct(
                     id=vector_id,
                     vector=vector,
-                    payload=metadata
+                    payload={**metadata, "chat_id": metadata.get("chat_id")}
                 )
             )
         

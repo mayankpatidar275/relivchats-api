@@ -63,7 +63,7 @@ def upload_whatsapp_file(
             db=db
         )
         
-        # 5. Return the completed chat with participants
+        # 5. Return the completed chat with participants and vector status
         return schemas.ChatUploadResponse.from_orm(processed_chat)
          
     except Exception as e:
@@ -173,7 +173,7 @@ def get_user_chats(
     """Get all chats for the current user"""
     chats = service.get_user_chats(db, user_id)
     
-    # Convert to response format with message count
+    # Convert to response format with message count and vector status
     chat_details = []
     for chat in chats:
         message_count = len(chat.messages) if chat.messages else 0
@@ -185,6 +185,9 @@ def get_user_chats(
             user_display_name=chat.user_display_name,
             created_at=chat.created_at,
             status=chat.status,
+            vector_status=getattr(chat, 'vector_status', 'pending'),
+            chunk_count=getattr(chat, 'chunk_count', 0),
+            indexed_at=getattr(chat, 'indexed_at', None),
             message_count=message_count
         )
         
@@ -279,3 +282,63 @@ def get_user_chats(
 
 
 
+
+# VECTOR-RELATED ENDPOINTS
+
+@router.get("/{chat_id}/vector-status", response_model=schemas.VectorStatusResponse)
+def get_chat_vector_status(
+    chat_id: str,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    db: Session = Depends(get_db)
+):
+    """Get vector indexing status for a chat"""
+    chat = service.get_chat_by_id(db, chat_id)
+    
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    if chat.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this chat")
+    
+    return schemas.VectorStatusResponse(
+        chat_id=chat.id,
+        vector_status=getattr(chat, 'vector_status', 'pending'),
+        chunk_count=getattr(chat, 'chunk_count', 0),
+        indexed_at=getattr(chat, 'indexed_at', None),
+        is_searchable=getattr(chat, 'vector_status', 'pending') == 'completed'
+    )
+
+# @router.post("/{chat_id}/reindex")
+# def reindex_chat_vectors(
+#     chat_id: str,
+#     user_id: Annotated[str, Depends(get_current_user_id)],
+#     db: Session = Depends(get_db)
+# ):
+#     """Re-trigger vector indexing for a chat"""
+#     chat = service.get_chat_by_id(db, chat_id)
+    
+#     if not chat:
+#         raise HTTPException(status_code=404, detail="Chat not found")
+    
+#     if chat.user_id != user_id:
+#         raise HTTPException(status_code=403, detail="Not authorized to access this chat")
+    
+#     if chat.status != "completed":
+#         raise HTTPException(
+#             status_code=400, 
+#             detail="Chat must be successfully parsed before indexing"
+#         )
+    
+#     try:
+#         # Import here to avoid circular imports
+#         from ..vector.service import vector_service
+        
+#         success = vector_service.reindex_chat(db, chat_id)
+        
+#         if success:
+#             return {"message": "Reindexing started successfully", "chat_id": chat_id}
+#         else:
+#             raise HTTPException(status_code=500, detail="Failed to start reindexing")
+            
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Reindexing failed: {str(e)}")

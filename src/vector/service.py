@@ -185,6 +185,7 @@ class VectorService:
                     "metadata": result["metadata"],
                 })
 
+            # print("search_results: ", enhanced_results)
             return enhanced_results
 
         except Exception as e:

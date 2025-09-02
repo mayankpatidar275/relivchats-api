@@ -3,8 +3,7 @@ import json
 import uuid
 import zipfile
 from pathlib import Path
-from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
@@ -12,8 +11,6 @@ import whatstk
 from fastapi import HTTPException, status
 
 from . import models
-from . import schemas
-
 
 def create_chat(db: Session, user_id: str):
     new_chat_id = str(uuid.uuid4())

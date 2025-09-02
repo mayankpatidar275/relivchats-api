@@ -42,12 +42,6 @@ class ChatUploadResponse(BaseModel):
             indexed_at=getattr(db_chat, 'indexed_at', None),
             error_log=db_chat.error_log
         )
-
-# class ChatParticipantsResponse(BaseModel):
-#     id: str
-#     participants: List[str]
-#     current_user_display_name: Optional[str] = None
-
 class UpdateUserDisplayName(BaseModel):
     user_display_name: str
 
@@ -88,3 +82,8 @@ class VectorStatusResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
+# class ChatParticipantsResponse(BaseModel):
+#     id: str
+#     participants: List[str]
+#     current_user_display_name: Optional[str] = None

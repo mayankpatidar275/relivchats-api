@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict
 
 import google.generativeai as genai
 from sqlalchemy.orm import Session

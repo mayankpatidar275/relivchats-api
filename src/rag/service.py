@@ -217,8 +217,6 @@ def query_chat_with_rag(
     # Get conversation history
     conversation_history = get_conversation_history(db, str(conversation.id))
     
-    print("conversation_history: ", conversation_history)
-
     # Get chat info
     chat = get_chat_by_id(db, chat_id)
     chat_title = chat.title if chat else None

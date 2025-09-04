@@ -83,6 +83,24 @@ class VectorStatusResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class AIMessageResponse(BaseModel):
+    id: str
+    message_type: str
+    content: str
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+class AIConversationResponse(BaseModel):
+    id: str
+    chat_id: str
+    created_at: datetime
+    updated_at: datetime
+    messages: List[AIMessageResponse]
+    
+    class Config:
+        from_attributes = True
 
 # class ChatParticipantsResponse(BaseModel):
 #     id: str

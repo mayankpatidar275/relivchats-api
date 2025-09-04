@@ -167,6 +167,47 @@ def get_user_chats(
     messages = service.get_chat_messages(db, chat_id, user_id)
     return messages
 
+@router.get("/{chat_id}/ai-conversation", response_model=schemas.AIConversationResponse)
+def get_chat_ai_conversation_endpoint(
+    chat_id: UUID,
+    db: Session = Depends(get_db),
+    user_id = Depends(get_current_user_id)
+):
+    """Get AI conversation history for a chat"""
+    
+    # Verify user owns the chat
+    chat = service.get_chat_by_id(db, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    if str(chat.user_id) != str(user_id):
+        raise HTTPException(status_code=403, detail="Not authorized to access this chat")
+    
+    # Get conversation
+    conversation = service.get_chat_ai_conversation(db, chat_id, str(user_id))
+    
+    if not conversation:
+        raise HTTPException(status_code=404, detail="No AI conversation found for this chat")
+    
+    # Sort messages chronologically
+    sorted_messages = sorted(conversation.messages, key=lambda x: x.created_at)
+    
+    return schemas.AIConversationResponse(
+        id=str(conversation.id),
+        chat_id=str(conversation.chat_id),
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+        messages=[
+            schemas.AIMessageResponse(
+                id=str(msg.id),
+                message_type=msg.message_type.value,
+                content=msg.content,
+                created_at=msg.created_at
+            )
+            for msg in sorted_messages
+        ]
+    )
+
 
 # VECTOR-RELATED ENDPOINTS
 

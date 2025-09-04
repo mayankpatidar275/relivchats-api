@@ -6,10 +6,12 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError
 import whatstk
 from fastapi import HTTPException, status
+
+from src.rag.models import AIConversation, AIMessage
 
 from . import models
 
@@ -229,3 +231,14 @@ def trigger_vector_indexing(db: Session, chat_id: UUID):
         print(f"Error triggering vector indexing for chat {chat_id}: {e}")
         # Don't raise the error - chat parsing was successful
         # Vector indexing can be retried later
+
+def get_chat_ai_conversation(db: Session, chat_id: UUID, user_id: str) -> Optional[AIConversation]:
+    """Get AI conversation for a specific chat and user"""
+    conversation = db.query(AIConversation).options(
+        joinedload(AIConversation.messages)
+    ).filter(
+        AIConversation.chat_id == chat_id,
+        AIConversation.user_id == user_id
+    ).first()
+    
+    return conversation

@@ -1,6 +1,7 @@
 import shutil
 from pathlib import Path
 from typing import Annotated, List
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
@@ -94,7 +95,7 @@ def get_user_chats(
     for chat in chats:
         message_count = len(chat.messages) if chat.messages else 0
         chat_detail = schemas.ChatDetailsResponse(
-            id=chat.id,
+            id=str(chat.id),
             user_id=chat.user_id,
             title=chat.title,
             participants=None,
@@ -141,7 +142,7 @@ def update_user_display_name(
 
 @router.get("/{chat_id}", response_model=schemas.ChatUploadResponse)
 def get_chat_details(
-    chat_id: str,
+    chat_id: UUID,
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: Session = Depends(get_db)
 ):
@@ -158,7 +159,7 @@ def get_chat_details(
 
 @router.get("/{chat_id}/messages", response_model=List[schemas.ChatMessagesResponse])
 def get_user_chats(
-    chat_id: str,
+    chat_id: UUID,
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: Session = Depends(get_db)
 ):

@@ -1,5 +1,6 @@
 import os
 import json
+from uuid import UUID
 import uuid
 import zipfile
 from pathlib import Path
@@ -20,13 +21,13 @@ def create_chat(db: Session, user_id: str):
     db.refresh(db_chat)
     return db_chat
 
-def get_chat_by_id(db: Session, chat_id: str):
+def get_chat_by_id(db: Session, chat_id: UUID):
     return db.query(models.Chat).filter(models.Chat.id == chat_id).first()
 
 def get_user_chats(db: Session, user_id: str):
     return db.query(models.Chat).filter(models.Chat.user_id == user_id).all()
 
-def get_chat_messages(db: Session, chat_id: str, user_id: str):
+def get_chat_messages(db: Session, chat_id: UUID, user_id: str):
     messages = (
         db.query(models.Message)
         .join(models.Chat)
@@ -133,7 +134,7 @@ def parse_whatsapp_file(file_path: str) -> tuple:
             os.remove(extracted_path)
         raise e
 
-def save_messages_to_db(db: Session, chat_id: str, whatstk_chat) -> int:
+def save_messages_to_db(db: Session, chat_id: UUID, whatstk_chat) -> int:
     """Save parsed messages to database and return count"""
     messages = []
     
@@ -153,7 +154,7 @@ def save_messages_to_db(db: Session, chat_id: str, whatstk_chat) -> int:
     
     return len(messages)
 
-def process_whatsapp_file(chat_id: str, file_path: str, db: Session):
+def process_whatsapp_file(chat_id: UUID, file_path: str, db: Session):
     """Process WhatsApp file synchronously and trigger vector indexing"""
     chat = None
     error_message = ""
@@ -210,7 +211,7 @@ def process_whatsapp_file(chat_id: str, file_path: str, db: Session):
         except Exception as cleanup_error:
             print(f"Warning: Failed to clean up file {file_path}: {cleanup_error}")
             
-def trigger_vector_indexing(db: Session, chat_id: str):
+def trigger_vector_indexing(db: Session, chat_id: UUID):
     """Trigger vector indexing for a completed chat"""
     try:
         # Import here to avoid circular imports

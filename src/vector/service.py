@@ -1,4 +1,5 @@
 import uuid
+from uuid import UUID
 import json
 from datetime import datetime
 from typing import List, Optional
@@ -41,7 +42,7 @@ class VectorService:
             embeddings.append(embedding)
         return embeddings
 
-    def create_chat_chunks(self, db: Session, chat_id: str) -> bool:
+    def create_chat_chunks(self, db: Session, chat_id: UUID) -> bool:
         """Create chunks for a chat and store them"""
         try:
             # Get chat and its messages
@@ -86,7 +87,7 @@ class VectorService:
             for chunk in chunks:
                 metadata = chunk.metadata.copy()
                 metadata.update({
-                    "chat_id": chat_id,
+                    "chat_id": str(chat_id),
                     "chunk_index": chunk.chunk_index,
                     "estimated_tokens": chunk.estimated_tokens,
                     "chunk_text": chunk.chunk_text  # Store text in metadata for retrieval
@@ -100,10 +101,10 @@ class VectorService:
             db_chunks = []
             for chunk, vector_id in zip(chunks, vector_ids):
                 db_chunk = MessageChunk(
-                    id=str(uuid.uuid4()),
+                    id=uuid.uuid4(),
                     chat_id=chat_id,
                     chunk_text=chunk.chunk_text,
-                    chunk_metadata=chunk.metadata,
+                    chunk_metadata=chunk.metadata, 
                     vector_id=vector_id,
                     chunk_index=chunk.chunk_index,
                     token_count=chunk.estimated_tokens
@@ -138,7 +139,7 @@ class VectorService:
             self.cleanup_failed_indexing(db, chat_id)
             return False
 
-    def cleanup_failed_indexing(self, db: Session, chat_id: str):
+    def cleanup_failed_indexing(self, db: Session, chat_id: UUID):
         """Clean up partial indexing data on failure"""
         try:
             # Remove chunks from PostgreSQL
@@ -154,7 +155,7 @@ class VectorService:
     def search_chat(
         self, 
         db: Session, 
-        chat_id: str, 
+        chat_id: uuid, 
         query: str, 
         limit: int = 5
     ) -> List[dict]:
@@ -192,7 +193,7 @@ class VectorService:
             print(f"Error searching chat {chat_id}: {e}")
             raise
 
-    def reindex_chat(self, db: Session, chat_id: str) -> bool:
+    def reindex_chat(self, db: Session, chat_id: uuid) -> bool:
         """Re-index a chat (useful for failed indexings)"""
         try:
             # Clean up existing data
@@ -212,6 +213,7 @@ class VectorService:
         except Exception as e:
             print(f"Error reindexing chat {chat_id}: {e}")
             return False
+
 
 # Global service instance
 vector_service = VectorService()

@@ -2,9 +2,10 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List
 import json
+from uuid import UUID
 
 class ChatUploadResponse(BaseModel):
-    id: str
+    id: UUID
     user_id: str
     title: Optional[str] = None
     participants: Optional[List[str]] = None
@@ -62,8 +63,8 @@ class ChatDetailsResponse(BaseModel):
         from_attributes = True
         
 class ChatMessagesResponse(BaseModel):
-    id: str
-    chat_id: str
+    id: UUID
+    chat_id: UUID
     sender: Optional[str] = None
     content: str
     timestamp: datetime

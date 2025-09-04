@@ -19,7 +19,6 @@ def query_chat(
     db: Session = Depends(get_db)
 ):
     """Ask a question about a specific chat using RAG"""
-    
     # Verify user owns the chat
     chat = get_chat_by_id(db, request.chat_id)
     if not chat:
@@ -41,6 +40,7 @@ def query_chat(
             db=db,
             chat_id=request.chat_id,
             question=request.question,
+            user_id=user_id,
             max_chunks=request.max_chunks
         )
         

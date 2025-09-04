@@ -3,10 +3,11 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
 from ..config import settings
+from uuid import UUID
 
 @dataclass
 class ChunkMessage:
-    message_id: str
+    message_id: UUID
     sender: str
     content: str
     timestamp: datetime
@@ -96,7 +97,7 @@ class ConversationChunker:
         start_time = messages[0].timestamp
         end_time = messages[-1].timestamp
         speakers = list(set(msg.sender for msg in messages if msg.sender))
-        message_ids = [msg.message_id for msg in messages]
+        message_ids = [str(msg.message_id) for msg in messages]
 
         return {
             "start_timestamp": start_time.isoformat(),

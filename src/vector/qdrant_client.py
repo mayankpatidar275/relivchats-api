@@ -1,4 +1,5 @@
 import uuid
+from uuid import UUID
 from typing import List, Dict, Any, Optional
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
@@ -105,7 +106,7 @@ class QdrantVectorStore:
         
         return results
 
-    def delete_vectors_by_chat_id(self, chat_id: str):
+    def delete_vectors_by_chat_id(self, chat_id: UUID):
         """Delete all vectors for a specific chat"""
         self.client.delete(
             collection_name=self.collection_name,

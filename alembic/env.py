@@ -14,6 +14,8 @@ from src.config import settings  # Import your settings
 from src.users.models import User  # Make sure to import all your models here
 from src.chats.models import Chat
 from src.chats.models import Message
+from src.rag.models import AIConversation
+from src.rag.models import AIMessage
 
 # this is the Alembic Config object
 config = context.config

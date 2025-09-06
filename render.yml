@@ -9,14 +9,14 @@ services:
     # Build command runs during the build phase (before deployment)
     # It installs Python dependencies and then runs Alembic migrations.
     # `alembic upgrade head` applies all pending migrations to your database.
-    buildCommand: "pip install -r requirements.txt && alembic upgrade head"
+    buildCommand: "pip install -r requirements/prod.txt && alembic upgrade head"
 
     # Start command runs when your service starts up
     # It uses uvicorn to run your FastAPI application.
     # `app.main:app` refers to the FastAPI application instance named `app` in `app/main.py`.
     # `0.0.0.0` makes the server accessible from outside the container.
     # `$PORT` is an environment variable provided by Render.
-    startCommand: "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+    startCommand: "uvicorn src.main:app --host 0.0.0.0 --port $PORT"
 
     # Environment variables for your application.
     # IMPORTANT: Use `fromSecret` for sensitive credentials (like database URLs, API keys)
@@ -28,22 +28,26 @@ services:
         fromSecret: qdrant-url # Maps to a secret named 'qdrant-url' in Render
       - key: QDRANT_API_KEY
         fromSecret: qdrant-api-key # Maps to a secret named 'qdrant-api-key' in Render
+      - key: CLERK_SECRET_KEY
+        fromSecret: clerk-secret-key
+      - key: GEMINI_API_KEY
+        fromSecret: gemini-api-key
 
-      # AWS S3 Credentials and Bucket Name (replace with your actual Render secret names)
-      - key: AWS_ACCESS_KEY_ID
-        fromSecret: aws-access-key-id
-      - key: AWS_SECRET_ACCESS_KEY
-        fromSecret: aws-secret-access-key
-      - key: S3_BUCKET_NAME
-        value: "your-relivchats-s3-bucket" # Replace with your actual S3 bucket name
-      - key: AWS_REGION
-        value: "us-east-1" # Replace with your AWS region (e.g., eu-central-1)
+      # # AWS S3 Credentials and Bucket Name (replace with your actual Render secret names)
+      # - key: AWS_ACCESS_KEY_ID
+      #   fromSecret: aws-access-key-id
+      # - key: AWS_SECRET_ACCESS_KEY
+      #   fromSecret: aws-secret-access-key
+      # - key: S3_BUCKET_NAME
+      #   value: "your-relivchats-s3-bucket" # Replace with your actual S3 bucket name
+      # - key: AWS_REGION
+      #   value: "us-east-1" # Replace with your AWS region (e.g., eu-central-1)
 
-      # Chat Limits - can also be secrets if they vary per environment
-      - key: MAX_UPLOAD_FILE_SIZE_MB
-        value: 5
-      - key: MAX_CHATS_PER_USER
-        value: 3
+      # # Chat Limits - can also be secrets if they vary per environment
+      # - key: MAX_UPLOAD_FILE_SIZE_MB
+      #   value: 5
+      # - key: MAX_CHATS_PER_USER
+      #   value: 3
 
       # Port is automatically set by Render, but explicitly defining it is good practice
       - key: PORT

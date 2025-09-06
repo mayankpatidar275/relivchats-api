@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+alembic
+psycopg2-binary  # For PostgreSQL database connection
+python-dotenv
+pydantic-settings # For structured settings management
+clerk-backend-api
+python-multipart
+whatstk
+# Vector Database & AI
+qdrant-client
+google-generativeai>=0.3.0
+langchain>=0.1.0
+langchain-google-genai>=0.0.8

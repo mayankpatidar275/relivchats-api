@@ -1,0 +1,41 @@
+version: "3.8"
+
+services:
+  app:
+    image: ${DOCKER_USERNAME}/relivchats-api:latest
+    container_name: relivchats-api
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - QDRANT_URL=${QDRANT_URL}
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    volumes:
+      - ./uploads:/app/uploads
+    networks:
+      - app-network
+
+  nginx-proxy-manager:
+    image: "jc21/nginx-proxy-manager:latest"
+    container_name: nginx-proxy-manager
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "81:81" # Admin UI
+    environment:
+      - DB_SQLITE_FILE=/data/database.sqlite
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    networks:
+      - app-network
+
+volumes:
+  npm_data:
+  npm_letsencrypt:
+
+networks:
+  app-network:
+    driver: bridge

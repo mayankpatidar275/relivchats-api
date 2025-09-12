@@ -115,7 +115,7 @@ class QdrantVectorStore:
                     must=[
                         models.FieldCondition(
                             key="chat_id",
-                            match=models.MatchValue(value=chat_id)
+                            match=models.MatchValue(value=str(chat_id))
                         )
                     ]
                 )

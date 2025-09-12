@@ -82,7 +82,7 @@ def upload_whatsapp_file(
                 # Log the cleanup error but don't fail the request
                 print(f"Warning: Failed to clean up temp file {file_path}: {cleanup_error}")
 
-@router.get("/", response_model=List[schemas.ChatDetailsResponse])
+@router.get("", response_model=List[schemas.ChatDetailsResponse])
 def get_user_chats(
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: Session = Depends(get_db)

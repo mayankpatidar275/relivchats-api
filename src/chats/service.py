@@ -120,7 +120,8 @@ def parse_whatsapp_file(file_path: str) -> tuple:
         
         # Generate title (you can customize this logic)
         if len(participants) == 2:
-            title = f"Chat with {', '.join(participants)}"
+            # title = f"Chat with {', '.join(participants)}"
+            title = f"{', '.join(participants)}"
         else:
             title = f"Group chat ({len(participants)} participants)"
         
@@ -229,8 +230,11 @@ def trigger_vector_indexing(db: Session, chat_id: UUID):
             
     except Exception as e:
         print(f"Error triggering vector indexing for chat {chat_id}: {e}")
+        # TODO
         # Don't raise the error - chat parsing was successful
         # Vector indexing can be retried later
+                # Delete the chat completely
+        delete_chat(db, chat_id)
 
 def get_chat_ai_conversation(db: Session, chat_id: UUID, user_id: str) -> Optional[AIConversation]:
     """Get AI conversation for a specific chat and user"""

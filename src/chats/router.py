@@ -157,6 +157,25 @@ def get_chat_details(
     
     return schemas.ChatUploadResponse.from_orm(chat)
 
+@router.delete("/{chat_id}", status_code=204)
+def delete_chat_endpoint(
+    chat_id: UUID,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    db: Session = Depends(get_db),
+):
+    """Delete a specific chat"""
+    chat = service.get_chat_by_id(db, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    if chat.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    success = service.delete_chat(db, chat_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete chat")
+    return
+
+
 @router.get("/{chat_id}/messages", response_model=List[schemas.ChatMessagesResponse])
 def get_user_chats(
     chat_id: UUID,

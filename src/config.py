@@ -13,16 +13,17 @@ class Settings(BaseSettings):
     QDRANT_URL: str
     QDRANT_API_KEY: str
     QDRANT_COLLECTION_NAME: str = "chat_messages"
-    QDRANT_VECTOR_SIZE: int = 768  # Gemini embedding dimension
+    # QDRANT_VECTOR_SIZE: int = 768  # Gemini embedding dimension
+    QDRANT_VECTOR_SIZE: int = 3072  # Gemini embedding dimension
     
     # Gemini API Settings
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
-    GEMINI_EMBEDDING_MODEL: str = "models/embedding-001"
+    GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-001"
     GEMINI_LLM_MODEL: str = "gemini-2.5-flash"
     
     # Chunking Settings
     MAX_CHUNK_SIZE: int = 1000  # Maximum tokens per chunk
-    MIN_CHUNK_SIZE: int = 100   # Minimum tokens per chunk
+    MIN_CHUNK_SIZE: int = 800   # Minimum tokens per chunk
     CHUNK_OVERLAP: int = 50     # Token overlap between chunks
     TIME_WINDOW_MINUTES: int = 10  # Max time gap for conversation grouping
 

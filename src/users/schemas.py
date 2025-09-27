@@ -14,3 +14,9 @@ class UserOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+class UserDeleteResponse(BaseModel):
+    success: bool
+    message: str
+    deleted_at: datetime
+    user_id: str

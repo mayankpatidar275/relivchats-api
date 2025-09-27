@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, TIMESTAMP, ForeignKey, Text, Integer
+from sqlalchemy import Column, String, TIMESTAMP, ForeignKey, Text, Integer, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
@@ -21,6 +21,10 @@ class Chat(Base):
     vector_status = Column(String, default="pending")  # 'pending', 'indexing', 'completed', 'failed'
     indexed_at = Column(TIMESTAMP(timezone=True), nullable=True)
     chunk_count = Column(Integer, default=0)
+    
+    # Soft delete fields
+    is_deleted = Column(Boolean, default=False, nullable=False, server_default='false')
+    deleted_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
     messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
     ai_conversations = relationship("AIConversation", back_populates="chat", cascade="all, delete-orphan")

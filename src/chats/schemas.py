@@ -102,6 +102,11 @@ class AIConversationResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class ChatDeleteResponse(BaseModel):
+    success: bool
+    message: str
+    chat_id: UUID
+    
 # class ChatParticipantsResponse(BaseModel):
 #     id: str
 #     participants: List[str]

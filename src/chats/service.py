@@ -5,13 +5,16 @@ import uuid
 import zipfile
 from pathlib import Path
 from typing import Optional
+from sqlalchemy.sql import func
 
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import SQLAlchemyError
 import whatstk
 from fastapi import HTTPException, status
+import logging
 
 from src.rag.models import AIConversation, AIMessage
+logger = logging.getLogger(__name__)
 
 from . import models
 
@@ -27,7 +30,7 @@ def get_chat_by_id(db: Session, chat_id: UUID):
     return db.query(models.Chat).filter(models.Chat.id == chat_id).first()
 
 def get_user_chats(db: Session, user_id: str):
-    return db.query(models.Chat).filter(models.Chat.user_id == user_id).all()
+    return db.query(models.Chat).filter(models.Chat.user_id == user_id, models.Chat.is_deleted == False).all()
 
 def get_chat_messages(db: Session, chat_id: UUID, user_id: str):
     messages = (
@@ -78,6 +81,39 @@ def delete_chat(db: Session, chat_id: str):
     except SQLAlchemyError as e:
         db.rollback()
         print(f"Error deleting chat {chat_id}: {e}")
+    return False
+
+def soft_delete_chat(db: Session, chat_id: str):
+    """Soft Delete chat and all related data (messages, chunks, vectors)"""
+    try:
+        chat = get_chat_by_id(db, chat_id)
+        if not chat:
+            return None
+        
+        now = func.now()
+    
+        # Soft delete chat
+        chat.is_deleted = True
+        chat.deleted_at = now
+    
+        # Soft delete all user's AI conversations  
+        user_conversations = db.query(AIConversation).filter(
+            AIConversation.chat_id == chat_id,
+            AIConversation.is_deleted == False
+        ).all()
+        for conversation in user_conversations:
+            conversation.is_deleted = True
+            conversation.deleted_at = now
+        
+        db.commit()
+        db.refresh(chat)
+    
+        logger.info(f"Soft deleted chat {chat_id} and related data")
+        return True
+
+    except SQLAlchemyError as e:
+        db.rollback()
+        print(f"Error soft deleting chat {chat_id}: {e}")
     return False
 
 def extract_txt_from_zip(zip_path: str) -> Optional[str]:

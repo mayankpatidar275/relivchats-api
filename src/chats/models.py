@@ -26,10 +26,16 @@ class Chat(Base):
     is_deleted = Column(Boolean, default=False, nullable=False, server_default='false')
     deleted_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
+    category_id = Column(UUID(as_uuid=True), ForeignKey("analysis_categories.id", ondelete="SET NULL"), nullable=True)
+
     messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
+    insights = relationship("Insight", back_populates="chat", cascade="all, delete-orphan")
     ai_conversations = relationship("AIConversation", back_populates="chat", cascade="all, delete-orphan")
     chunks = relationship("MessageChunk", back_populates="chat", cascade="all, delete-orphan")
     owner = relationship("User", back_populates="chats")
+    category = relationship("AnalysisCategory", back_populates="chats")
+    insights = relationship("Insight", back_populates="chat", cascade="all, delete-orphan")
+
 
 class Message(Base):
     __tablename__ = "messages"

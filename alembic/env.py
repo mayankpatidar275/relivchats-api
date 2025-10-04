@@ -16,6 +16,10 @@ from src.chats.models import Chat
 from src.chats.models import Message
 from src.rag.models import AIConversation
 from src.rag.models import AIMessage
+from src.rag.models import AnalysisCategory
+from src.rag.models import CategoryInsightType
+from src.rag.models import InsightType
+from src.rag.models import Insight
 
 # this is the Alembic Config object
 config = context.config

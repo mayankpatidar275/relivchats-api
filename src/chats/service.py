@@ -30,7 +30,7 @@ def get_chat_by_id(db: Session, chat_id: UUID):
     return db.query(models.Chat).filter(models.Chat.id == chat_id).first()
 
 def get_user_chats(db: Session, user_id: str):
-    return db.query(models.Chat).filter(models.Chat.user_id == user_id, models.Chat.is_deleted == False).all()
+    return db.query(models.Chat).filter(models.Chat.user_id == user_id, models.Chat.is_deleted == False, models.Chat.vector_status == "completed", models.Chat.status == "completed", models.Chat.user_display_name != None).all()
 
 def get_chat_messages(db: Session, chat_id: UUID, user_id: str):
     messages = (

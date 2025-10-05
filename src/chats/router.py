@@ -55,7 +55,7 @@ def upload_whatsapp_file(
 
     try:
         # 3. Create a chat entry in the database with 'processing' status
-        db_chat = service.create_chat(db, user_id=user_id)
+        db_chat = service.create_chat(db, user_id=user_id, analysis_category_id="62c7bb3d-da07-46a7-9d43-6586b6170d22")
         
         # 4. Process the file synchronously
         processed_chat = service.process_whatsapp_file(

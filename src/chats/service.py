@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 
 from . import models
 
-def create_chat(db: Session, user_id: str):
+def create_chat(db: Session, user_id: str, analysis_category_id: str):
     new_chat_id = str(uuid.uuid4())
-    db_chat = models.Chat(id=new_chat_id, user_id=user_id, status="processing")
+    db_chat = models.Chat(id=new_chat_id, user_id=user_id, category_id=analysis_category_id, status="processing")
     db.add(db_chat)
     db.commit()
     db.refresh(db_chat)

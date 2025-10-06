@@ -173,7 +173,7 @@ class VectorService:
             search_results = qdrant_store.search_similar(
                 query_vector=query_embedding,
                 limit=limit,
-                chat_id=chat_id
+                chat_id=str(chat_id)
             )
 
             # Enhance results with chunk data from DB if needed

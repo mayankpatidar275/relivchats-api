@@ -72,6 +72,25 @@ class ChatMessagesResponse(BaseModel):
     class Config:
         from_attributes = True
 
+class InsightTypeBase(BaseModel):
+    id: UUID
+    name: str
+    display_title: str
+    description: Optional[str]
+    icon: Optional[str]
+    is_premium: bool
+
+    class Config:
+        from_attributes = True
+
+class InsightWithTypeResponse(BaseModel):
+    insight_type: InsightTypeBase
+    status: str  # "pending", "generating", "completed", "failed"
+    insight_id: Optional[UUID]  # null if not generated
+    has_content: bool
+    
+    class Config:
+        from_attributes = True
 
 class VectorStatusResponse(BaseModel):
     chat_id: str

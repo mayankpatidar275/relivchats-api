@@ -1,5 +1,6 @@
 import os
 import json
+from sqlalchemy import select
 from uuid import UUID
 import uuid
 import zipfile
@@ -13,7 +14,7 @@ import whatstk
 from fastapi import HTTPException, status
 import logging
 
-from src.rag.models import AIConversation, AIMessage
+from src.rag.models import AIConversation, AIMessage, InsightType, CategoryInsightType, Insight
 logger = logging.getLogger(__name__)
 
 from . import models
@@ -282,3 +283,37 @@ def get_chat_ai_conversation(db: Session, chat_id: UUID, user_id: str) -> Option
     ).first()
     
     return conversation
+
+def get_chat_insights_with_types(db: Session, chat_id: UUID):
+    """Get all insight types for a chat's category with generation status"""
+    # Get chat with category
+    chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
+    if not chat or not chat.category_id:
+        return []
+    
+    # Get insight types for this category
+    stmt = (
+        select(InsightType, Insight)
+        .join(CategoryInsightType, CategoryInsightType.insight_type_id == InsightType.id)
+        .outerjoin(
+            Insight,
+            (Insight.insight_type_id == InsightType.id) & (Insight.chat_id == chat_id)
+        )
+        .where(CategoryInsightType.category_id == chat.category_id)
+        .where(InsightType.is_active == True)
+        .order_by(CategoryInsightType.display_order)
+    )
+    
+    results = db.execute(stmt).all()
+    
+    # Format response
+    insights = []
+    for insight_type, insight in results:
+        insights.append({
+            "insight_type": insight_type,
+            "status": insight.status if insight else "pending",
+            "insight_id": insight.id if insight else None,
+            "has_content": bool(insight and insight.content)
+        })
+    
+    return insights

@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+from uuid import UUID
 
 class RAGQueryRequest(BaseModel):
     chat_id: str
@@ -18,6 +19,25 @@ class SearchResultResponse(BaseModel):
     message_count: int
     time_span: str  # Human readable time span
 
+    class Config:
+        from_attributes = True
+
+class GenerateInsightRequest(BaseModel):
+    chat_id: str
+    insight_type_id: str
+
+class InsightResponse(BaseModel):
+    id: UUID
+    chat_id: UUID
+    insight_type_id: UUID
+    content: Optional[Dict[str, Any]]
+    status: str
+    error_message: Optional[str]
+    tokens_used: Optional[int]
+    generation_time_ms: Optional[int]
+    created_at: datetime
+    updated_at: Optional[datetime]
+    
     class Config:
         from_attributes = True
 

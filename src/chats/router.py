@@ -55,7 +55,7 @@ def upload_whatsapp_file(
 
     try:
         # 3. Create a chat entry in the database with 'processing' status
-        db_chat = service.create_chat(db, user_id=user_id, analysis_category_id="62c7bb3d-da07-46a7-9d43-6586b6170d22")
+        db_chat = service.create_chat(db, user_id=user_id, analysis_category_id="2dd602d5-1e31-456d-8f34-f5bf5fd64e23")
         
         # 4. Process the file synchronously
         processed_chat = service.process_whatsapp_file(
@@ -140,6 +140,35 @@ def update_user_display_name(
         )
     
     return schemas.ChatUploadResponse.from_orm(chat)
+
+@router.get("/{chat_id}/insights", response_model=List[schemas.InsightWithTypeResponse])
+def get_chat_insights(
+    chat_id: UUID,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    db: Session = Depends(get_db)
+):
+    """Get all available insight types for a chat with generation status"""
+    # Verify user owns the chat
+    chat = service.get_chat_by_id(db, chat_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    if chat.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this chat")
+    
+    # Check if chat is ready
+    if chat.vector_status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Chat is not ready. Current status: {chat.vector_status}"
+        )
+    
+    try:
+        insights = service.get_chat_insights_with_types(db, chat_id)
+        return insights
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch insights: {str(e)}")
+
 
 @router.get("/{chat_id}", response_model=schemas.ChatUploadResponse)
 def get_chat_details(

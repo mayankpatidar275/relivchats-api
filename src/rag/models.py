@@ -36,7 +36,8 @@ class InsightType(Base):
     description = Column(Text, nullable=True)  # What this insight provides
     icon = Column(String, nullable=True)
     prompt_template = Column(Text, nullable=False)  # Gemini prompt template
-    
+    rag_query_keywords = Column(Text, nullable=True)  # "conflicts, arguments, fights"
+
     # Premium & cost tracking
     is_premium = Column(Boolean, default=False, nullable=False)
     credit_cost = Column(Integer, default=1, nullable=False)  # For future payment

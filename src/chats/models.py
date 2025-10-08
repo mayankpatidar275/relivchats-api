@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, TIMESTAMP, ForeignKey, Text, Integer, Boolean
+from sqlalchemy import Column, String, TIMESTAMP, ForeignKey, Text, Integer, Boolean, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
@@ -12,6 +12,8 @@ class Chat(Base):
     user_id = Column(String, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=True)  # E.g., The name of the chat group
     participants = Column(Text, nullable=True)  # JSON string of participant names
+    chat_metadata = Column(JSON, nullable=True)  # All pre-computed stats
+    partner_name = Column(String, nullable=True)  # Extracted partner name
     user_display_name = Column(String, nullable=True)  # User's selected display name
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     status = Column(String, default="processing")  # 'processing', 'completed', 'failed'

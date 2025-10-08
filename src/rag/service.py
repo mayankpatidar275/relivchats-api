@@ -138,7 +138,7 @@ def create_insight_rag_prompt(question: str, context_chunks: List[Dict], chat_ti
     conversation_text = ""
     
     prompt = f"""You are helping a user understand their WhatsApp chat{title_info}. 
-Answer their question based ONLY on the provided chat context and previous conversation. Be conversational and helpful.
+Answer their question based ONLY on the provided chat context. Be helpful.
 
 **User Question:** {question}
 
@@ -146,7 +146,7 @@ Answer their question based ONLY on the provided chat context and previous conve
 {context_text}
 {conversation_text}
 **Instructions:**
-- Answer based only on the provided context and conversation history
+- Answer based only on the provided context
 - Be conversational and natural
 - If the context doesn't contain enough information, say so honestly
 - Reference specific people or timeframes when relevant

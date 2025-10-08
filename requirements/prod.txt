@@ -8,6 +8,9 @@ pydantic-settings # For structured settings management
 clerk-backend-api
 python-multipart
 whatstk
+emoji
+nltk
+pandas
 # Vector Database & AI
 qdrant-client
 google-generativeai>=0.3.0

@@ -5,6 +5,7 @@ from sqlalchemy.sql import func
 from ..database import Base
 import uuid
 import enum
+from sqlalchemy.dialects.postgresql import JSONB
 
 class InsightStatus(enum.Enum):
     PENDING = "pending"
@@ -37,6 +38,8 @@ class InsightType(Base):
     icon = Column(String, nullable=True)
     prompt_template = Column(Text, nullable=False)  # Gemini prompt template
     rag_query_keywords = Column(Text, nullable=True)  # "conflicts, arguments, fights"
+    response_schema = Column(JSONB, nullable=False)  # Gemini JSON schema
+    required_metadata_fields = Column(JSONB, nullable=True)  # ["total_messages", "user_stats"]
 
     # Premium & cost tracking
     is_premium = Column(Boolean, default=False, nullable=False)

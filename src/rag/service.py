@@ -388,6 +388,10 @@ def get_chat_insights_summary(
 
 def create_insight_response(db: Session, insight: Insight) -> schemas.InsightResponse:
     """Convert Insight model to response schema"""
+    
+    # Add this line to ensure relationship is loaded:
+    db.refresh(insight)  # <-- ADD THIS LINE
+
     insight_type = insight.insight_type
     
     generation_metadata = None

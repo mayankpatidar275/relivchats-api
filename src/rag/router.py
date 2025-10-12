@@ -80,7 +80,7 @@ def generate_insight(
         if existing_insight:
             # If completed, return immediately
             if existing_insight.status == InsightStatus.COMPLETED:
-                return schemas.InsightResponse.from_orm(existing_insight)
+                return service.create_insight_response(db, existing_insight)            
             
             # If already generating, return status
             if existing_insight.status == InsightStatus.GENERATING:
@@ -92,7 +92,7 @@ def generate_insight(
             # If failed, retry
             if existing_insight.status == InsightStatus.FAILED:
                 insight = service.regenerate_insight(db, existing_insight.id)
-                return schemas.InsightResponse.from_orm(insight)
+                return service.create_insight_response(db, insight)
         
         # Generate new insight
         insight = service.generate_insight(
@@ -101,7 +101,7 @@ def generate_insight(
             insight_type_id=UUID(request.insight_type_id)
         )
         
-        return schemas.InsightResponse.from_orm(insight)
+        return service.create_insight_response(db, insight)
         
     except HTTPException:
         raise

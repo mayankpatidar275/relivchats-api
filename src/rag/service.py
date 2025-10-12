@@ -9,7 +9,8 @@ from uuid import UUID
 import time
 import uuid
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from sqlalchemy.orm import Session
 
 from ..vector.service import vector_service
@@ -17,9 +18,6 @@ from ..chats.service import get_chat_by_id
 from .models import Insight, InsightType, InsightStatus, AIConversation, AIMessage, MessageType
 from . import schemas
 from ..config import settings
-
-# Configure Gemini
-genai.configure(api_key=settings.GEMINI_API_KEY)
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -157,16 +155,22 @@ def call_gemini_structured(
     """
     
     try:
-        model = genai.GenerativeModel(
-            model_name=settings.GEMINI_LLM_MODEL,
-            generation_config={
-                "temperature": temperature,
-                "response_mime_type": "application/json",
-                "response_schema": response_schema
-            }
+        # Initialize client (configure API key in settings)
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        
+        # Prepare generation config
+        generation_config = types.GenerateContentConfig(
+            temperature=temperature,
+            response_mime_type="application/json",
+            response_schema=response_schema
         )
         
-        response = model.generate_content(prompt)
+        # Generate content
+        response = client.models.generate_content(
+            model=settings.GEMINI_LLM_MODEL,  # e.g., "gemini-2.0-flash-exp"
+            contents=prompt,
+            config=generation_config
+        )
         
         # Parse JSON response
         result = json.loads(response.text)
@@ -174,7 +178,10 @@ def call_gemini_structured(
         # Get token usage if available
         tokens_used = None
         if hasattr(response, 'usage_metadata'):
-            tokens_used = response.usage_metadata.total_token_count
+            tokens_used = (
+                response.usage_metadata.prompt_token_count + 
+                response.usage_metadata.candidates_token_count
+            )
         
         return result, tokens_used
         

@@ -1,6 +1,8 @@
 import time
+import json
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Any, Tuple
+from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from fastapi import HTTPException, status
 from uuid import UUID
@@ -12,12 +14,16 @@ from sqlalchemy.orm import Session
 
 from ..vector.service import vector_service
 from ..chats.service import get_chat_by_id
-from .models import AIConversation, AIMessage, MessageType, Insight, InsightType, InsightStatus
+from .models import Insight, InsightType, InsightStatus, AIConversation, AIMessage, MessageType
 from . import schemas
 from ..config import settings
 
 # Configure Gemini
 genai.configure(api_key=settings.GEMINI_API_KEY)
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
 
 def format_time_span(minutes: int) -> str:
     """Convert minutes to human readable format"""
@@ -26,49 +32,32 @@ def format_time_span(minutes: int) -> str:
     elif minutes < 1440:  # Less than 24 hours
         hours = minutes // 60
         remaining_minutes = minutes % 60
-        if remaining_minutes == 0:
-            return f"{hours} hours"
-        return f"{hours}h {remaining_minutes}m"
+        return f"{hours}h {remaining_minutes}m" if remaining_minutes else f"{hours} hours"
     else:
         days = minutes // 1440
         remaining_hours = (minutes % 1440) // 60
-        if remaining_hours == 0:
-            return f"{days} days"
-        return f"{days}d {remaining_hours}h"
+        return f"{days}d {remaining_hours}h" if remaining_hours else f"{days} days"
 
-def search_chat_chunks(
-    db: Session, 
-    chat_id: str, 
-    query: str, 
-    limit: int = 5
-) -> List[schemas.SearchResultResponse]:
-    """Search for relevant chunks without LLM response"""
+def extract_required_metadata(
+    chat_metadata: Dict[str, Any],
+    required_fields: Optional[List[str]]
+) -> Dict[str, Any]:
+    """Extract only required metadata fields from chat metadata"""
+    if not required_fields:
+        # If no specific fields required, return essential stats only
+        return {
+            "total_messages": chat_metadata.get("total_messages"),
+            "total_days": chat_metadata.get("total_days"),
+            "messages_per_day_avg": chat_metadata.get("messages_per_day_avg"),
+            "user_stats": chat_metadata.get("user_stats", {})
+        }
     
-    # Use vector service to search
-    search_results = vector_service.search_chat(db, chat_id, query, limit)
+    extracted = {}
+    for field in required_fields:
+        if field in chat_metadata:
+            extracted[field] = chat_metadata[field]
     
-    # Convert to response format
-    formatted_results = []
-    for result in search_results:
-        metadata = result["metadata"]
-        
-        # Calculate time span
-        time_span_minutes = metadata.get("time_span_minutes", 0)
-        time_span_str = format_time_span(time_span_minutes)
-        
-        formatted_result = schemas.SearchResultResponse(
-            vector_id=result["vector_id"],
-            content=result["content"],
-            similarity_score=result["similarity_score"],
-            metadata=metadata,
-            chunk_index=metadata.get("chunk_index", 0),
-            speakers=metadata.get("speakers", []),
-            message_count=metadata.get("message_count", 0),
-            time_span=time_span_str
-        )
-        formatted_results.append(formatted_result)
-    
-    return formatted_results
+    return extracted
 
 def determine_confidence(similarity_scores: List[float]) -> str:
     """Determine confidence level based on similarity scores"""
@@ -85,203 +74,339 @@ def determine_confidence(similarity_scores: List[float]) -> str:
     else:
         return "low"
 
-def create_insight_rag_prompt(question: str, context_chunks: List[Dict], chat_title: str = None) -> str:
-    """Create a prompt for insight for the LLM"""
+# ============================================================================
+# RAG & PROMPT BUILDING
+# ============================================================================
+
+def fetch_rag_chunks(
+    db: Session,
+    chat_id: UUID,
+    rag_query_keywords: str,
+    max_chunks: int = 50
+) -> List[schemas.RAGChunk]:
+    """Fetch relevant chunks from vector DB"""
     
-    title_info = f" titled '{chat_title}'" if chat_title else ""
+    search_results = vector_service.search_chat(
+        db=db,
+        chat_id=str(chat_id),
+        query=rag_query_keywords,
+        limit=max_chunks
+    )
     
-    context_text = "\n\n".join([
-        f"**Context {i+1}** (from {chunk['metadata'].get('speakers', ['Unknown'])}): \n{chunk['content']}"
-        for i, chunk in enumerate(context_chunks)
+    chunks = []
+    for result in search_results:
+        metadata = result["metadata"]
+        time_span_minutes = metadata.get("time_span_minutes", 0)
+        
+        chunk = schemas.RAGChunk(
+            content=result["content"],
+            speakers=metadata.get("speakers", []),
+            message_count=metadata.get("message_count", 0),
+            time_span=format_time_span(time_span_minutes),
+            similarity_score=result["similarity_score"],
+            metadata=metadata
+        )
+        chunks.append(chunk)
+    
+    return chunks
+
+def build_insight_prompt(
+    prompt_template: str,
+    context: schemas.InsightPromptContext
+) -> str:
+    """Build final prompt by injecting metadata and RAG chunks into template"""
+    
+    # Format RAG chunks as text
+    chunks_text = "\n\n".join([
+        f"--- Message Chunk {i+1} ---\n"
+        f"Speakers: {', '.join(chunk.speakers)}\n"
+        f"Time Period: {chunk.time_span}\n"
+        f"Messages: {chunk.message_count}\n"
+        f"Content:\n{chunk.content}"
+        for i, chunk in enumerate(context.rag_chunks)
     ])
     
-    # Add conversation history section
-    conversation_text = ""
+    # Format metadata as readable text
+    metadata_text = json.dumps(context.chat_metadata, indent=2)
     
-    prompt = f"""You are helping a user understand their WhatsApp chat{title_info}. 
-Answer their question based ONLY on the provided chat context. Be helpful.
-
-**User Question:** {question}
-
-**Relevant Chat Context:**
-{context_text}
-{conversation_text}
-**Instructions:**
-- Answer based only on the provided context
-- Be conversational and natural
-- If the context doesn't contain enough information, say so honestly
-- Reference specific people or timeframes when relevant
-- Don't make up information not in the context
-- Consider the conversation flow and previous questions
-
-**Answer:**"""
-
-    return prompt
-
-def query_chat_for_insight_with_rag(
-    db: Session,
-    chat_id: str,
-    question: str,
-    rag_query_keywords: str,
-    max_chunks: int = 5
-) -> schemas.RAGQueryResponse:
-    """Perform RAG query on a chat with for insight"""
-    
-    start_time = time.time()
-    
-    # Get chat info
-    chat = get_chat_by_id(db, chat_id)
-    chat_title = chat.title if chat else None
-    
-    # Search for relevant chunks
-    search_results = vector_service.search_chat(db, chat_id, rag_query_keywords, max_chunks)
-    
-    if not search_results:
-        # No relevant context found
-        answer = "I couldn't find any relevant information in this chat to answer your question. Try rephrasing your question or asking about something else from the conversation."
-        confidence = "low"
-        sources = []
-    else:
-        # Create prompt with context and conversation history
-        prompt = create_insight_rag_prompt(question, search_results, chat_title)
-        
-        # Get LLM response
-        try:
-            model = genai.GenerativeModel(settings.GEMINI_LLM_MODEL)
-            response = model.generate_content(prompt)
-            answer = response.text.strip()
-        except Exception as e:
-            print(f"Error generating LLM response: {e}")
-            answer = "I'm sorry, I encountered an error while generating a response. Please try again."
-        
-        # Determine confidence
-        similarity_scores = [r["similarity_score"] for r in search_results]
-        confidence = determine_confidence(similarity_scores)
-        
-        # Format sources
-        sources = []
-        for result in search_results:
-            metadata = result["metadata"]
-            time_span_minutes = metadata.get("time_span_minutes", 0)
-            
-            source = schemas.SearchResultResponse(
-                vector_id=result["vector_id"],
-                content=result["content"],
-                similarity_score=result["similarity_score"],
-                metadata=metadata,
-                chunk_index=metadata.get("chunk_index", 0),
-                speakers=metadata.get("speakers", []),
-                message_count=metadata.get("message_count", 0),
-                time_span=format_time_span(time_span_minutes)
-            )
-            sources.append(source)
-    
-    # Calculate response time
-    response_time_ms = int((time.time() - start_time) * 1000)
-    
-    return schemas.RAGQueryResponse(
-        question=question,
-        answer=answer,
-        chat_id=str(chat_id),
-        chat_title=chat_title,
-        sources_used=sources,
-        confidence=confidence,
-        response_time_ms=response_time_ms,
-        created_at=datetime.utcnow()
+    # Inject context into template
+    # Template can use placeholders: {user_name}, {partner_name}, {metadata}, {chunks}
+    final_prompt = prompt_template.format(
+        user_name=context.user_display_name,
+        partner_name=context.partner_name or "the other person",
+        chat_title=context.chat_title or "this chat",
+        metadata=metadata_text,
+        chunks=chunks_text,
+        total_chunks=len(context.rag_chunks)
     )
-
-def get_insight(db: Session, chat_id: UUID, insight_type_id: UUID):
-    """Get existing insight if it exists"""
-    try: 
-        insight = db.query(Insight).filter(
-            Insight.chat_id == chat_id,
-            Insight.insight_type_id == insight_type_id
-        ).first()
-        return insight
-
-    except Exception as e:
-        print("Get insight error:", str(e))
-
-def generate_insight(db: Session, chat_id: UUID, insight_type_id: UUID):
-    """Generate a new insight using RAG"""
-    start_time = time.time()
-    # Get insight type with prompt template
-    insight_type = db.query(InsightType).filter(InsightType.id == insight_type_id).first()
-    if not insight_type:
-        raise ValueError("Insight type not found")
     
-    # Create insight record with "generating" status
-    existing = db.query(Insight).filter_by(chat_id=chat_id, insight_type_id=insight_type_id).first()
-    if existing:
-        insight = existing
-        insight.status = InsightStatus.GENERATING
-        insight.error_message = None
-    else:
-        insight = Insight(chat_id=chat_id, insight_type_id=insight_type_id, status=InsightStatus.GENERATING)
+    return final_prompt
 
+# ============================================================================
+# GEMINI INTERACTION
+# ============================================================================
+
+def call_gemini_structured(
+    prompt: str,
+    response_schema: Dict[str, Any],
+    temperature: float = 0.7
+) -> tuple[Dict[str, Any], int]:
+    """
+    Call Gemini with structured output mode
+    Returns: (parsed_json, tokens_used)
+    """
+    
     try:
-        db.add(insight)
-        db.commit()
-        db.refresh(insight)
-
-    except Exception as e:
-        db.rollback()
-        print("Commit Error:", str(e))
-
-    try:
-        # Use RAG to generate insight
-        rag_response = query_chat_for_insight_with_rag(
-            db=db,
-            chat_id=chat_id,
-            question=insight_type.prompt_template,
-            rag_query_keywords=insight_type.rag_query_keywords,
-            # user_id=None,  # System generated
-            max_chunks=50  # Adjust based on insight type
+        model = genai.GenerativeModel(
+            model_name=settings.GEMINI_LLM_MODEL,
+            generation_config={
+                "temperature": temperature,
+                "response_mime_type": "application/json",
+                "response_schema": response_schema
+            }
         )
         
-        # Parse and structure the content
-        content = {
-            "analysis": rag_response.answer,
-            "generated_at": datetime.utcnow().isoformat()
-        }
+        response = model.generate_content(prompt)
         
-        # Update insight with results
-        insight.content = content
+        # Parse JSON response
+        result = json.loads(response.text)
+        
+        # Get token usage if available
+        tokens_used = None
+        if hasattr(response, 'usage_metadata'):
+            tokens_used = response.usage_metadata.total_token_count
+        
+        return result, tokens_used
+        
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Gemini returned invalid JSON: {e}")
+    except Exception as e:
+        raise RuntimeError(f"Gemini API error: {e}")
+
+# ============================================================================
+# MAIN INSIGHT GENERATION
+# ============================================================================
+
+def generate_insight(
+    db: Session,
+    chat_id: UUID,
+    insight_type_id: UUID
+) -> Insight:
+    """
+    Generate a new insight using RAG + Gemini structured output
+    
+    Flow:
+    1. Load InsightType config from DB
+    2. Get chat metadata and partner info
+    3. Fetch relevant chunks via RAG
+    4. Build prompt with injected context
+    5. Call Gemini with response schema
+    6. Store structured result
+    """
+    
+    start_time = time.time()
+    
+    # 1. Get insight type configuration
+    insight_type = db.query(InsightType).filter(
+        InsightType.id == insight_type_id
+    ).first()
+    
+    if not insight_type:
+        raise ValueError(f"Insight type {insight_type_id} not found")
+    
+    if not insight_type.is_active:
+        raise ValueError(f"Insight type {insight_type.name} is not active")
+    
+    # 2. Get chat and metadata
+    chat = get_chat_by_id(db, chat_id)
+    if not chat:
+        raise ValueError(f"Chat {chat_id} not found")
+    
+    if not chat.chat_metadata:
+        raise ValueError(f"Chat {chat_id} has no metadata. Process chat first.")
+    
+    # 3. Create or update insight record
+    insight = db.query(Insight).filter_by(
+        chat_id=chat_id,
+        insight_type_id=insight_type_id
+    ).first()
+    
+    if insight:
+        insight.status = InsightStatus.GENERATING
+        insight.error_message = None
+        insight.updated_at = datetime.utcnow()
+    else:
+        insight = Insight(
+            chat_id=chat_id,
+            insight_type_id=insight_type_id,
+            status=InsightStatus.GENERATING
+        )
+        db.add(insight)
+    
+    db.commit()
+    db.refresh(insight)
+    
+    try:
+        # 4. Fetch RAG chunks
+        rag_chunks = fetch_rag_chunks(
+            db=db,
+            chat_id=chat_id,
+            rag_query_keywords=insight_type.rag_query_keywords,
+            max_chunks=50
+        )
+        
+        if not rag_chunks:
+            raise ValueError("No relevant message chunks found for this insight")
+        
+        # 5. Extract required metadata
+        filtered_metadata = extract_required_metadata(
+            chat_metadata=chat.chat_metadata,
+            required_fields=insight_type.required_metadata_fields
+        )
+        
+        # 6. Build prompt context
+        prompt_context = schemas.InsightPromptContext(
+            user_display_name=chat.user_display_name or "User",
+            partner_name=chat.partner_name,
+            chat_metadata=filtered_metadata,
+            rag_chunks=rag_chunks,
+            chat_title=chat.title
+        )
+        
+        # 7. Build final prompt
+        final_prompt = build_insight_prompt(
+            prompt_template=insight_type.prompt_template,
+            context=prompt_context
+        )
+        
+        # 8. Call Gemini with structured output
+        structured_content, tokens_used = call_gemini_structured(
+            prompt=final_prompt,
+            response_schema=insight_type.response_schema,
+            temperature=0.7
+        )
+        
+        # 9. Update insight with results
+        generation_time_ms = int((time.time() - start_time) * 1000)
+        
+        insight.content = structured_content
         insight.status = InsightStatus.COMPLETED
-        # insight.tokens_used = rag_response.tokens_used if hasattr(rag_response, 'tokens_used') else None
-        insight.tokens_used = None
-        insight.generation_time_ms = int((time.time() - start_time) * 1000)
-        # insight.rag_chunks_used = len(rag_response.chunks) if hasattr(rag_response, 'chunks') else None
-        insight.rag_chunks_used = None
+        insight.tokens_used = tokens_used
+        insight.generation_time_ms = generation_time_ms
+        insight.rag_chunks_used = len(rag_chunks)
+        insight.updated_at = datetime.utcnow()
+        
         db.commit()
         db.refresh(insight)
+        
         return insight
         
     except Exception as e:
         # Mark as failed
         insight.status = InsightStatus.FAILED
-        insight.error_message = str(e)
+        insight.error_message = str(e)[:500]  # Limit error message length
+        insight.updated_at = datetime.utcnow()
         db.commit()
         raise
 
-def regenerate_insight(db: Session, insight_id: UUID):
-    """Retry generating a failed insight"""
-    try: 
-        insight = db.query(Insight).filter(Insight.id == insight_id).first()
-        if not insight:
-            raise ValueError("Insight not found")
-        # Reset and regenerate
-        insight.status = InsightStatus.GENERATING
-        insight.error_message = None
-        db.commit()
-        generated_insight =  generate_insight(db, insight.chat_id, insight.insight_type_id)
-        return generated_insight
+# ============================================================================
+# INSIGHT RETRIEVAL & REGENERATION
+# ============================================================================
 
-    except Exception as e: 
-        insight.status = InsightStatus.FAILED
-        insight.error_message = str(e)
-        db.commit()
-        print("Error generating insight: ", e)
+def get_insight(
+    db: Session,
+    chat_id: UUID,
+    insight_type_id: UUID
+) -> Optional[Insight]:
+    """Get existing insight if it exists"""
+    return db.query(Insight).filter(
+        Insight.chat_id == chat_id,
+        Insight.insight_type_id == insight_type_id
+    ).first()
+
+def regenerate_insight(
+    db: Session,
+    insight_id: UUID
+) -> Insight:
+    """Retry generating a failed insight"""
+    insight = db.query(Insight).filter(Insight.id == insight_id).first()
+    
+    if not insight:
+        raise ValueError(f"Insight {insight_id} not found")
+    
+    # Simply call generate_insight again
+    return generate_insight(
+        db=db,
+        chat_id=insight.chat_id,
+        insight_type_id=insight.insight_type_id
+    )
+
+def get_chat_insights_summary(
+    db: Session,
+    chat_id: UUID,
+    category_id: UUID
+) -> schemas.ChatInsightsSummary:
+    """Get summary of all insights for a chat"""
+    
+    # Get all available insight types for this category
+    # (You'll need to implement category-insight relationship query)
+    # For now, just get all active insights
+    available_types = db.query(InsightType).filter(
+        InsightType.is_active == True
+    ).all()
+    
+    # Get generated insights
+    generated = db.query(Insight).filter(
+        Insight.chat_id == chat_id
+    ).all()
+    
+    # Calculate stats
+    completed = sum(1 for i in generated if i.status == InsightStatus.COMPLETED)
+    failed = sum(1 for i in generated if i.status == InsightStatus.FAILED)
+    generating = sum(1 for i in generated if i.status == InsightStatus.GENERATING)
+    
+    return schemas.ChatInsightsSummary(
+        chat_id=chat_id,
+        total_insights=len(generated),
+        completed_insights=completed,
+        failed_insights=failed,
+        generating_insights=generating,
+        available_insight_types=[
+            schemas.InsightTypeResponse.from_orm(it) for it in available_types
+        ],
+        generated_insights=[
+            create_insight_response(db, insight) for insight in generated
+        ]
+    )
+
+def create_insight_response(db: Session, insight: Insight) -> schemas.InsightResponse:
+    """Convert Insight model to response schema"""
+    insight_type = insight.insight_type
+    
+    generation_metadata = None
+    if insight.status == InsightStatus.COMPLETED:
+        generation_metadata = schemas.InsightGenerationMetadata(
+            rag_chunks_used=insight.rag_chunks_used or 0,
+            tokens_used=insight.tokens_used,
+            generation_time_ms=insight.generation_time_ms or 0,
+            model_used=settings.GEMINI_LLM_MODEL
+        )
+    
+    return schemas.InsightResponse(
+        id=insight.id,
+        chat_id=insight.chat_id,
+        insight_type_id=insight.insight_type_id,
+        insight_type_name=insight_type.name,
+        display_title=insight_type.display_title,
+        icon=insight_type.icon,
+        is_premium=insight_type.is_premium,
+        content=insight.content,
+        status=insight.status,
+        error_message=insight.error_message,
+        generation_metadata=generation_metadata,
+        created_at=insight.created_at,
+        updated_at=insight.updated_at
+    )
 
 
 # Not used for now

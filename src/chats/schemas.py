@@ -1,15 +1,35 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from datetime import datetime
 from typing import Optional, List
 import json
 from uuid import UUID
 
+# export interface Chat {
+#   id: string;
+#   filename: string;
+#   platform: "whatsapp" | "telegram" | "instagram" | "other";
+#   category_id?: string;
+#   category_slug?: string;
+#   category_name?: string;
+#   uploaded_at: string;
+#   participant_count: number;
+#   message_count: number;
+#   date_range_start?: string;
+#   date_range_end?: string;
+#   file_size_bytes: number;
+#   processing_status: "pending" | "processed" | "failed";
+#   insights_unlocked: boolean; // NEW: Track if insights are unlocked
+# }
+
 class ChatUploadResponse(BaseModel):
     id: UUID
     user_id: str
     title: Optional[str] = None
+    filename: str
     participants: Optional[List[str]] = None
     user_display_name: Optional[str] = None
+    chat_metadata: Optional[dict] = None  # Raw JSON with all stats
+    category_id: Optional[UUID] = None
     created_at: datetime
     status: str
     vector_status: str = "pending"
@@ -34,8 +54,11 @@ class ChatUploadResponse(BaseModel):
             id=db_chat.id,
             user_id=db_chat.user_id,
             title=db_chat.title,
+            filename=db_chat.title or "Unnamed Chat",
             participants=participants_list,
             user_display_name=db_chat.user_display_name,
+            chat_metadata=db_chat.chat_metadata,  # Return raw JSON dict
+            category_id=db_chat.category_id,
             created_at=db_chat.created_at,
             status=db_chat.status,
             vector_status=getattr(db_chat, 'vector_status', 'pending'),

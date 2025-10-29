@@ -46,9 +46,16 @@ CONFIG = {
                         'yeh', 'woh', 'is', 'us', 'ek', 'nahi', 'kyu', 'kyun', 'kaise']
 }
 
-def create_chat(db: Session, user_id: str, analysis_category_id: str):
+def create_chat(db: Session, user_id: str, filename: str, category_id: Optional[str] = None):
+    """Create a new chat record"""
     new_chat_id = str(uuid.uuid4())
-    db_chat = models.Chat(id=new_chat_id, user_id=user_id, category_id=analysis_category_id, status="processing")
+    db_chat = models.Chat(
+        id=new_chat_id, 
+        user_id=user_id,
+        title=filename,  # Use filename as initial title
+        category_id=category_id if category_id else None,
+        status="processing"
+    )
     db.add(db_chat)
     db.commit()
     db.refresh(db_chat)
@@ -252,7 +259,7 @@ def process_whatsapp_file(chat_id: UUID, file_path: str, db: Session):
         print(f"Successfully processed chat {chat_id}: {message_count} messages saved")
         
         # **NEW: Trigger vector indexing asynchronously**
-        trigger_vector_indexing(db, chat_id)
+        # trigger_vector_indexing(db, chat_id)
         
         return chat
         

@@ -1,6 +1,6 @@
 import shutil
 from pathlib import Path
-from typing import Annotated, List
+from typing import Annotated, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
@@ -26,6 +26,7 @@ router = APIRouter(
 def upload_whatsapp_file(
     file: Annotated[UploadFile, File(...)],
     user_id: Annotated[str, Depends(get_current_user_id)],
+    category_id: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
     """Upload and process WhatsApp chat file synchronously"""
@@ -55,7 +56,12 @@ def upload_whatsapp_file(
 
     try:
         # 3. Create a chat entry in the database with 'processing' status
-        db_chat = service.create_chat(db, user_id=user_id, analysis_category_id="2dd602d5-1e31-456d-8f34-f5bf5fd64e23")
+        db_chat = service.create_chat(
+            db, 
+            user_id=user_id, 
+            filename=file.filename,
+            category_id=category_id  # Pass optional category
+        )
         
         # 4. Process the file synchronously
         processed_chat = service.process_whatsapp_file(
@@ -64,7 +70,7 @@ def upload_whatsapp_file(
             db=db
         )
         
-        # 5. Return the completed chat with participants and vector status
+        # 5. Return the completed chat with all metadata
         return schemas.ChatUploadResponse.from_orm(processed_chat)
          
     except Exception as e:

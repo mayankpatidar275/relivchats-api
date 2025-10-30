@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Annotated, List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Form
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -26,7 +26,7 @@ router = APIRouter(
 def upload_whatsapp_file(
     file: Annotated[UploadFile, File(...)],
     user_id: Annotated[str, Depends(get_current_user_id)],
-    category_id: Optional[str] = None,
+    category_id: Optional[str] = Form(None),
     db: Session = Depends(get_db)
 ):
     """Upload and process WhatsApp chat file synchronously"""

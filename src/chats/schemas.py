@@ -22,7 +22,7 @@ from uuid import UUID
 # }
 
 class ChatUploadResponse(BaseModel):
-    id: UUID
+    chat_id: UUID
     user_id: str
     title: Optional[str] = None
     filename: str
@@ -30,7 +30,10 @@ class ChatUploadResponse(BaseModel):
     user_display_name: Optional[str] = None
     chat_metadata: Optional[dict] = None  # Raw JSON with all stats
     category_id: Optional[UUID] = None
+    category_slug: Optional[str] = None  # ADD THIS
+    category_name: Optional[str] = None  # ADD THIS
     created_at: datetime
+    insights_unlocked: bool  # check if insights exist
     status: str
     vector_status: str = "pending"
     chunk_count: int = 0
@@ -50,8 +53,18 @@ class ChatUploadResponse(BaseModel):
             except (json.JSONDecodeError, TypeError):
                 participants_list = None
         
+        # Get category info if exists
+        category_slug = None
+        category_name = None
+        if db_chat.category:
+            category_slug = db_chat.category.name  # 'romantic', 'friendship'
+            category_name = db_chat.category.display_name  # 'Romantic'
+        
+         # Check if insights exist
+        insights_unlocked = len(db_chat.insights) > 0
+        
         return cls(
-            id=db_chat.id,
+            chat_id=db_chat.id,
             user_id=db_chat.user_id,
             title=db_chat.title,
             filename=db_chat.title or "Unnamed Chat",
@@ -59,6 +72,67 @@ class ChatUploadResponse(BaseModel):
             user_display_name=db_chat.user_display_name,
             chat_metadata=db_chat.chat_metadata,  # Return raw JSON dict
             category_id=db_chat.category_id,
+            category_slug=category_slug,
+            category_name=category_name,
+            created_at=db_chat.created_at,
+            insights_unlocked=insights_unlocked,
+            status=db_chat.status,
+            vector_status=getattr(db_chat, 'vector_status', 'pending'),
+            chunk_count=getattr(db_chat, 'chunk_count', 0),
+            indexed_at=getattr(db_chat, 'indexed_at', None),
+            error_log=db_chat.error_log
+        )
+
+class GetChatResponse(BaseModel):
+    chat_id: UUID
+    user_id: str
+    title: Optional[str] = None
+    filename: str
+    participants: Optional[List[str]] = None
+    user_display_name: Optional[str] = None
+    chat_metadata: Optional[dict] = None  # Raw JSON with all stats
+    category_id: Optional[UUID] = None
+    category_slug: Optional[str] = None  # ADD THIS
+    category_name: Optional[str] = None  # ADD THIS
+    created_at: datetime
+    status: str
+    insights_unlocked: bool  # ADD THIS - check if insights exist
+    vector_status: str = "pending"
+    chunk_count: int = 0
+    indexed_at: Optional[datetime] = None
+    error_log: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+    
+    @classmethod
+    def from_orm(cls, db_chat):
+        """Convert database Chat object to schema"""
+        participants_list = None
+        if db_chat.participants:
+            try:
+                participants_list = json.loads(db_chat.participants)
+            except (json.JSONDecodeError, TypeError):
+                participants_list = None
+        
+        # Get category info if exists
+        category_slug = None
+        category_name = None
+        if db_chat.category:
+            category_slug = db_chat.category.name  # 'romantic', 'friendship'
+            category_name = db_chat.category.display_name  # 'Romantic'
+        
+        return cls(
+            chat_id=db_chat.id,
+            user_id=db_chat.user_id,
+            title=db_chat.title,
+            filename=db_chat.title or "Unnamed Chat",
+            participants=participants_list,
+            user_display_name=db_chat.user_display_name,
+            chat_metadata=db_chat.chat_metadata,  # Return raw JSON dict
+            category_id=db_chat.category_id,
+            category_slug=category_slug,
+            category_name=category_name,
             created_at=db_chat.created_at,
             status=db_chat.status,
             vector_status=getattr(db_chat, 'vector_status', 'pending'),
@@ -66,6 +140,7 @@ class ChatUploadResponse(BaseModel):
             indexed_at=getattr(db_chat, 'indexed_at', None),
             error_log=db_chat.error_log
         )
+
 class UpdateUserDisplayName(BaseModel):
     user_display_name: str
 

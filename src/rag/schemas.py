@@ -68,6 +68,26 @@ class InsightGenerationMetadata(BaseModel):
     model_used: str
     confidence_score: Optional[float] = None
     
+class UnlockInsightsRequest(BaseModel):
+    chat_id: UUID
+    category_id: UUID  # User selects category to unlock
+
+
+class InsightGenerationJob(BaseModel):
+    job_id: str
+    status: str  # 'queued', 'processing', 'completed', 'failed'
+    total_insights: int
+    completed_insights: int
+    
+
+class UnlockInsightsResponse(BaseModel):
+    success: bool
+    job_id: str
+    coins_deducted: int
+    remaining_balance: int
+    total_insights: int  # How many insights will be generated
+    estimated_time_seconds: int
+
 class InsightResponse(BaseModel):
     """Complete insight response with structured content"""
     id: UUID

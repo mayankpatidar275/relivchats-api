@@ -92,11 +92,11 @@ class GetChatResponse(BaseModel):
     user_display_name: Optional[str] = None
     chat_metadata: Optional[dict] = None  # Raw JSON with all stats
     category_id: Optional[UUID] = None
-    category_slug: Optional[str] = None  # ADD THIS
-    category_name: Optional[str] = None  # ADD THIS
+    category_slug: Optional[str] = None
+    category_name: Optional[str] = None
     created_at: datetime
     status: str
-    insights_unlocked: bool  # ADD THIS - check if insights exist
+    insights_unlocked: bool  # NEW - check if any insights exist
     vector_status: str = "pending"
     chunk_count: int = 0
     indexed_at: Optional[datetime] = None
@@ -119,8 +119,17 @@ class GetChatResponse(BaseModel):
         category_slug = None
         category_name = None
         if db_chat.category:
-            category_slug = db_chat.category.name  # 'romantic', 'friendship'
-            category_name = db_chat.category.display_name  # 'Romantic'
+            category_slug = db_chat.category.name
+            category_name = db_chat.category.display_name
+        
+        # Check if insights exist and are completed
+        # insights_unlocked = any(
+        #     insight.status == InsightStatus.COMPLETED 
+        #     for insight in db_chat.insights
+        # ) if db_chat.insights else False
+
+        # Check if insights exist
+        insights_unlocked = len(db_chat.insights) > 0
         
         return cls(
             chat_id=db_chat.id,
@@ -133,6 +142,7 @@ class GetChatResponse(BaseModel):
             category_id=db_chat.category_id,
             category_slug=category_slug,
             category_name=category_name,
+            insights_unlocked=insights_unlocked,
             created_at=db_chat.created_at,
             status=db_chat.status,
             vector_status=getattr(db_chat, 'vector_status', 'pending'),

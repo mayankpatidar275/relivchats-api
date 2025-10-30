@@ -63,10 +63,16 @@ def create_chat(db: Session, user_id: str, filename: str, category_id: Optional[
 
 def get_chat_by_id(db: Session, chat_id: UUID):
     try:
-        return db.query(models.Chat).filter(models.Chat.id == chat_id).first()
+        return db.query(models.Chat)\
+            .options(
+                joinedload(models.Chat.category),
+                joinedload(models.Chat.insights).joinedload(Insight.insight_type)
+            )\
+            .filter(models.Chat.id == chat_id)\
+            .first()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Get chat by id failed: {str(e)}")
-
+    
 def get_user_chats(db: Session, user_id: str):
     return db.query(models.Chat).filter(models.Chat.user_id == user_id, models.Chat.is_deleted == False, models.Chat.vector_status == "completed", models.Chat.status == "completed", models.Chat.user_display_name != None).all()
 

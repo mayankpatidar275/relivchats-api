@@ -175,8 +175,7 @@ def get_chat_insights(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch insights: {str(e)}")
 
-
-@router.get("/{chat_id}", response_model=schemas.ChatUploadResponse)
+@router.get("/{chat_id}", response_model=schemas.GetChatResponse)
 def get_chat_details(
     chat_id: UUID,
     user_id: Annotated[str, Depends(get_current_user_id)],
@@ -191,7 +190,7 @@ def get_chat_details(
     if chat.user_id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to access this chat")
     
-    return schemas.ChatUploadResponse.from_orm(chat)
+    return schemas.GetChatResponse.from_orm(chat)
 
 # @router.delete("/{chat_id}", status_code=204)
 # def delete_chat_endpoint(

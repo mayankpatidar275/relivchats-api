@@ -89,43 +89,24 @@ def upload_whatsapp_file(
                 # Log the cleanup error but don't fail the request
                 print(f"Warning: Failed to clean up temp file {file_path}: {cleanup_error}")
 
-@router.get("", response_model=List[schemas.ChatDetailsResponse])
+@router.get("", response_model=List[schemas.GetChatResponse])
 def get_user_chats(
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: Session = Depends(get_db)
 ):
     """Get all chats for the current user"""
     chats = service.get_user_chats(db, user_id)
-    
-    # Convert to response format with message count and vector status
-    chat_details = []
+
+    # Convert DB chat objects to schema using the classmethod
+    response = []
     for chat in chats:
-        message_count = len(chat.messages) if chat.messages else 0
-        chat_detail = schemas.ChatDetailsResponse(
-            id=str(chat.id),
-            user_id=chat.user_id,
-            title=chat.title,
-            participants=None,
-            user_display_name=chat.user_display_name,
-            created_at=chat.created_at,
-            status=chat.status,
-            vector_status=getattr(chat, 'vector_status', 'pending'),
-            chunk_count=getattr(chat, 'chunk_count', 0),
-            indexed_at=getattr(chat, 'indexed_at', None),
-            message_count=message_count
-        )
-        
-        # Parse participants if available
-        if chat.participants:
-            try:
-                import json
-                chat_detail.participants = json.loads(chat.participants)
-            except:
-                pass
-        
-        chat_details.append(chat_detail)
-    
-    return chat_details
+        try:
+            response.append(schemas.GetChatResponse.from_orm(chat))
+        except Exception:
+            # If conversion fails for any chat, skip it so endpoint still returns others
+            continue
+
+    return response
 
 @router.put("/{chat_id}/display-name", response_model=schemas.ChatUploadResponse)
 def update_user_display_name(

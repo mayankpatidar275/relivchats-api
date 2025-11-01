@@ -27,6 +27,7 @@ Base = declarative_base()
 from .users import models as users_models
 from .chats import models as chats_models
 from .vector import models as vector_models
+from .credits import models as credit_models
 
 
 def get_db(max_retries: int = 3):

@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 from typing import Annotated
 from ..auth.dependencies import get_current_user_id
 from datetime import datetime
+from ..credits.service import CreditService 
 
 from ..database import get_db
 from . import schemas, service
@@ -68,7 +69,34 @@ async def delete_account(
         user_id=user_id
     )
 
-    
+@router.post("/clerk-webhook")
+async def clerk_webhook(request: Request, db: Session = Depends(get_db)):
+    """Handle Clerk webhook events"""
+    try:
+        payload = await request.body()
+        # Verify webhook signature here (production)
+        
+        event_data = await request.json()
+        event_type = event_data.get("type")
+        
+        if event_type == "user.created":
+            user_data = event_data.get("data")
+            user_id = user_data.get("id")
+            email = user_data.get("email_addresses", [{}])[0].get("email_address")
+            
+            # Create user in our DB
+            new_user = service.create_user(db, user_id, email)
+            
+            # Give signup bonus (50 coins) - NEW
+            credit_service = CreditService(db)
+            credit_service.add_signup_bonus(user_id)
+            
+            return {"status": "success", "user_id": user_id}
+            
+        return {"status": "ignored"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 # @router.get("/{user_id}", response_model=schemas.UserOut)
 # def get_user(user_id: str, db: Session = Depends(get_db)):
 #     """Get active user by ID"""

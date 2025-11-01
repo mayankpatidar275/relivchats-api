@@ -1,3 +1,4 @@
+import json
 import shutil
 from pathlib import Path
 from typing import Annotated, List, Optional
@@ -10,7 +11,7 @@ from ..database import get_db
 from ..config import settings
 from ..auth.dependencies import get_current_user_id
 from src.rag.models import AIConversation, AIMessage, Insight
-from . import schemas, service
+from . import schemas, service, models
 from src.rag.schemas import InsightResponse
 
 # Configure a directory to temporarily store uploaded files
@@ -197,6 +198,26 @@ def get_chat_insights(
     
     return [InsightResponse.from_orm(insight) for insight in insights]
 
+
+@router.get("/chats/{chat_id}/stats")
+def get_public_chat_stats(
+    chat_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Get public chat statistics (no auth required)"""
+    chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
+    
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    # Return only public stats (no message content)
+    return {
+        "id": str(chat.id),
+        "filename": chat.title,
+        "participants": json.loads(chat.participants) if chat.participants else [],
+        "chat_metadata": chat.chat_metadata,
+        "created_at": chat.created_at,
+    }
 # @router.delete("/{chat_id}", status_code=204)
 # def delete_chat_endpoint(
 #     chat_id: UUID,

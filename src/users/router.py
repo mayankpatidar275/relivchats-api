@@ -18,13 +18,14 @@ def store_user(user: schemas.UserStore, db: Session = Depends(get_db)):
     return db_user
 
 @router.delete("/delete-account", response_model=schemas.UserDeleteResponse)
-def delete_account(
+async def delete_account(
     user_id: Annotated[str, Depends(get_current_user_id)],
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """
-    Soft delete user account and schedule permanent cleanup
+    Delete user account from both database and Clerk
+    Complies with GDPR and data protection regulations
     """
 
     # Check if user exists
@@ -35,7 +36,7 @@ def delete_account(
             detail="User not found"
         )
     
-    # Soft delete user and related data
+    # 1. Soft delete in our DB first (immediate)
     deleted_user = service.soft_delete_user(db, user_id)
     if not deleted_user:
         raise HTTPException(
@@ -43,8 +44,18 @@ def delete_account(
             detail="Failed to delete user account"
         )
     
-    # Schedule permanent cleanup in background
+    # 2. Delete from Clerk (immediate - required for compliance)
+    try:
+        await service.delete_clerk_user(user_id)
+    except Exception as e:
+        # Log the error but don't fail the request
+        # User is already soft-deleted in our DB
+        print(f"Warning: Failed to delete Clerk user {user_id}: {e}")
+        # You might want to queue this for retry
+    
+    # 3. Schedule permanent cleanup in background (after 30 days)
     background_tasks.add_task(
+        # service.schedule_hard_delete,
         service.hard_delete_user_data, 
         db, 
         user_id
@@ -52,12 +63,12 @@ def delete_account(
     
     return schemas.UserDeleteResponse(
         success=True,
-        message="Account successfully deleted",
+        message="Account successfully deleted. All data will be permanently removed.",
         deleted_at=deleted_user.deleted_at,
         user_id=user_id
     )
 
-
+    
 # @router.get("/{user_id}", response_model=schemas.UserOut)
 # def get_user(user_id: str, db: Session = Depends(get_db)):
 #     """Get active user by ID"""

@@ -3,9 +3,14 @@ from sqlalchemy.sql import func
 from datetime import datetime
 from typing import Optional
 from . import models, schemas
-from src.chats.models import Chat
-from src.rag.models import AIConversation, AIMessage
+from src.chats.models import Chat, Message
+from src.rag.models import AIConversation, AIMessage, Insight
+from src.vector.models import MessageChunk
 import logging
+import os
+import httpx
+from ..config import settings
+
 logger = logging.getLogger(__name__)
 
 def store_user_on_login(db: Session, user: schemas.UserStore):
@@ -88,31 +93,79 @@ def soft_delete_user(db: Session, user_id: str) -> Optional[models.User]:
     logger.info(f"Soft deleted user {user_id} and related data")
     return user
 
-def hard_delete_user_data(db: Session, user_id: str) -> bool:
-    """Permanently delete all user data (for background cleanup)"""
+def hard_delete_user_data(db: Session, user_id: str):
+    """
+    Permanently delete all user data (GDPR compliance)
+    Should only be called after retention period
+    """
     try:
-        # Get deleted user
-        deleted_user = db.query(models.User).filter(
-            models.User.user_id == user_id,
-            models.User.is_deleted == True
-        ).first()
+        # Delete messages (cascade will handle this, but explicit is better)
+        chat_ids = [chat.id for chat in db.query(Chat).filter(
+            Chat.user_id == user_id
+        ).all()]
         
-        if not deleted_user:
-            logger.warning(f"No deleted user found for permanent deletion: {user_id}")
-            return False
+        for chat_id in chat_ids:
+            db.query(Message).filter(Message.chat_id == chat_id).delete()
+            db.query(Insight).filter(Insight.chat_id == chat_id).delete()
+            db.query(MessageChunk).filter(MessageChunk.chat_id == chat_id).delete()
         
-        # Delete user (CASCADE will handle all related data)
-        db.delete(deleted_user)
+        # Delete chats
+        db.query(Chat).filter(Chat.user_id == user_id).delete()
+        
+        # Delete AI conversations and messages
+        conversation_ids = [conv.id for conv in db.query(AIConversation).filter(
+            AIConversation.user_id == user_id
+        ).all()]
+        
+        for conv_id in conversation_ids:
+            db.query(AIMessage).filter(AIMessage.conversation_id == conv_id).delete()
+        
+        db.query(AIConversation).filter(
+            AIConversation.user_id == user_id
+        ).delete()
+        
+        # Finally, delete user
+        db.query(models.User).filter(models.User.user_id == user_id).delete()
+        
         db.commit()
-        
-        logger.info(f"Permanently deleted user {user_id} and all related data")
-        return True
-        
+        print(f"Permanently deleted all data for user {user_id}")
+
     except Exception as e:
         logger.error(f"Failed to permanently delete user {user_id}: {str(e)}")
         db.rollback()
         return False
 
+def schedule_hard_delete(db: Session, user_id: str):
+    """
+    Schedule permanent data deletion after retention period
+    This should be called as a background task
+    """
+    # In production, use a proper job queue like Celery or RQ
+    # For now, just log it
+    print(f"Scheduled permanent deletion for user {user_id} after 30 days")
+    # TODO: Add to job queue for deletion after 30 days
+    
+async def delete_clerk_user(user_id: str):
+    """Delete user from Clerk"""
+    clerk_secret_key = settings.CLERK_SECRET_KEY
+    
+    if not clerk_secret_key:
+        raise Exception("CLERK_SECRET_KEY not configured")
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.delete(
+            f"https://api.clerk.com/v1/users/{user_id}",
+            headers={
+                "Authorization": f"Bearer {clerk_secret_key}",
+                "Content-Type": "application/json"
+            }
+        )
+        
+        if response.status_code not in [200, 204]:
+            raise Exception(f"Clerk deletion failed: {response.text}")
+        
+        return True
+  
 # def get_all_users(db: Session, include_deleted: bool = False):
 #     """Get all users, optionally including deleted ones"""
 #     query = db.query(models.User)

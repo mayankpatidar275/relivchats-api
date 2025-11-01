@@ -7,6 +7,7 @@ import uuid
 import enum
 from sqlalchemy.dialects.postgresql import JSONB
 
+# TODO: move these to categories folder
 class InsightStatus(enum.Enum):
     PENDING = "pending"
     GENERATING = "generating"

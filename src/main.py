@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .users.router import router as users_router  
 from .chats.router import router as chats_router
 from .rag.router import router as rag_router
+from .categories.router import router as category_router
 
 app = FastAPI(
     title="RelivChats API",
@@ -24,6 +25,7 @@ app.add_middleware(
 app.include_router(users_router, prefix='/api')
 app.include_router(chats_router, prefix='/api')
 app.include_router(rag_router, prefix='/api')
+app.include_router(category_router, prefix='/api')  
 
 @app.get("/")
 def read_root():

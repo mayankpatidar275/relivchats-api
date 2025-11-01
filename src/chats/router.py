@@ -4,13 +4,14 @@ from typing import Annotated, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Form
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
 from ..config import settings
 from ..auth.dependencies import get_current_user_id
-from src.rag.models import AIConversation, AIMessage
+from src.rag.models import AIConversation, AIMessage, Insight
 from . import schemas, service
+from src.rag.schemas import InsightResponse
 
 # Configure a directory to temporarily store uploaded files
 UPLOAD_FOLDER = Path("uploads")
@@ -172,6 +173,29 @@ def get_chat_details(
         raise HTTPException(status_code=403, detail="Not authorized to access this chat")
     
     return schemas.GetChatResponse.from_orm(chat)
+
+
+@router.get("/{chat_id}/insights", response_model=List[InsightResponse])
+def get_chat_insights(
+    chat_id: UUID,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    db: Session = Depends(get_db)
+):
+    """Get all insights for a chat"""
+    chat = service.get_chat_by_id(db, chat_id)
+    
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    if chat.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    insights = db.query(Insight)\
+        .options(joinedload(Insight.insight_type))\
+        .filter(Insight.chat_id == chat_id)\
+        .all()
+    
+    return [InsightResponse.from_orm(insight) for insight in insights]
 
 # @router.delete("/{chat_id}", status_code=204)
 # def delete_chat_endpoint(

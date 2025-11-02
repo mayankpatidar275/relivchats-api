@@ -5,6 +5,7 @@ from .users.router import router as users_router
 from .chats.router import router as chats_router
 from .rag.router import router as rag_router
 from .categories.router import router as category_router
+from .credits.router import router as credit_router
 
 
 app = FastAPI(
@@ -27,7 +28,7 @@ app.include_router(users_router, prefix='/api', tags=["users"])
 app.include_router(chats_router, prefix='/api', tags=["chats"])
 app.include_router(rag_router, prefix='/api', tags=["rag"])
 app.include_router(category_router, prefix='/api', tags=["categories"])  
-app.include_router(credits_router, prefix='/api', tags=["credits"])  
+app.include_router(credit_router, prefix='/api', tags=["credits"])  
 
 @app.get("/")
 def read_root():

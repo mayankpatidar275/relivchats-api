@@ -13,7 +13,19 @@ from ..config import settings
 
 logger = logging.getLogger(__name__)
 
-def store_user_on_login(db: Session, user: schemas.UserStore):
+def create_user(db: Session, user_id: str, email: str) -> models.User:
+    """Create a new user"""
+    user = models.User(
+        user_id=user_id,
+        email=email,
+        credit_balance=0  # Will be set by signup bonus
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+def store_user_on_login(db: Session, user: schemas.UserStore) -> models.User:
     # Check if the user already exists (excluding deleted users)
     db_user = db.query(models.User).filter(
         models.User.user_id == user.user_id,
@@ -44,6 +56,7 @@ def store_user_on_login(db: Session, user: schemas.UserStore):
         db_user = models.User(
             user_id=user.user_id,
             email=user.email,
+            credit_balance=0  # Will be set by signup bonus
         )
         db.add(db_user)
         db.commit()

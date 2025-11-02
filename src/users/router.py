@@ -73,9 +73,6 @@ async def delete_account(
 async def clerk_webhook(request: Request, db: Session = Depends(get_db)):
     """Handle Clerk webhook events"""
     try:
-        payload = await request.body()
-        # Verify webhook signature here (production)
-        
         event_data = await request.json()
         event_type = event_data.get("type")
         
@@ -84,19 +81,20 @@ async def clerk_webhook(request: Request, db: Session = Depends(get_db)):
             user_id = user_data.get("id")
             email = user_data.get("email_addresses", [{}])[0].get("email_address")
             
-            # Create user in our DB
+            # Create user
             new_user = service.create_user(db, user_id, email)
             
             # Give signup bonus (50 coins) - NEW
             credit_service = CreditService(db)
-            credit_service.add_signup_bonus(user_id)
+            credit_service.add_signup_bonus(user_id, bonus_amount=50)
             
-            return {"status": "success", "user_id": user_id}
+            return {"status": "success", "user_id": user_id, "bonus_coins": 50}
             
         return {"status": "ignored"}
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 # @router.get("/{user_id}", response_model=schemas.UserOut)
 # def get_user(user_id: str, db: Session = Depends(get_db)):
 #     """Get active user by ID"""

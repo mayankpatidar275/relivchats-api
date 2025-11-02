@@ -11,6 +11,7 @@ class UserOut(BaseModel):
     user_id: str
     email: str | None
     created_at: datetime
+    credit_balance: int
 
     class Config:
         from_attributes = True

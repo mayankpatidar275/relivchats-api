@@ -30,6 +30,21 @@ class Chat(Base):
 
     category_id = Column(UUID(as_uuid=True), ForeignKey("analysis_categories.id", ondelete="SET NULL"), nullable=True)
 
+    insights_unlocked_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    insights_generation_status = Column(
+        String, 
+        default="not_started",  # not_started, queued, generating, completed, partial_failure, failed
+        nullable=False
+    )
+    insights_generation_started_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    insights_generation_completed_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    insights_job_id = Column(String, nullable=True)  # Track background job
+    
+    # Performance tracking
+    total_insights_requested = Column(Integer, default=0)
+    total_insights_completed = Column(Integer, default=0)
+    total_insights_failed = Column(Integer, default=0)
+
     messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
     insights = relationship("Insight", back_populates="chat", cascade="all, delete-orphan")
     ai_conversations = relationship("AIConversation", back_populates="chat", cascade="all, delete-orphan")

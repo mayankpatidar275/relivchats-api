@@ -101,6 +101,57 @@ class Insight(Base):
         Index('idx_chat_insight_type', 'chat_id', 'insight_type_id', unique=True),
     )
 
+class ChatInsightGenerationStatus(enum.Enum):
+    NOT_STARTED = "not_started"      # Default state
+    QUEUED = "queued"                 # Unlock triggered, waiting
+    GENERATING = "generating"         # At least 1 insight being generated
+    COMPLETED = "completed"           # All insights successful
+    PARTIAL_FAILURE = "partial_failure"  # Some failed, some succeeded
+    FAILED = "failed"                 # All insights failed
+class InsightGenerationJob(Base):
+    __tablename__ = "insight_generation_jobs"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id = Column(String, unique=True, nullable=False, index=True)  # External job ID
+    chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
+    category_id = Column(UUID(as_uuid=True), ForeignKey("analysis_categories.id"), nullable=False)
+    user_id = Column(String, ForeignKey("users.user_id"), nullable=False)
+    
+    # Job status
+    status = Column(String, default="queued", nullable=False)  # queued, running, completed, failed
+    
+    # Insights tracking
+    total_insights = Column(Integer, nullable=False)
+    completed_insights = Column(Integer, default=0)
+    failed_insights = Column(Integer, default=0)
+    
+    # Timing
+    started_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    completed_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    estimated_completion_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    
+    # Performance
+    total_tokens_used = Column(Integer, default=0)
+    total_generation_time_ms = Column(Integer, default=0)
+    
+    # Error tracking
+    error_message = Column(Text, nullable=True)
+    failed_insight_ids = Column(JSON, nullable=True)  # List of failed insight IDs
+    
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), onupdate=func.now())
+
+
+
+# Why this matters:
+
+# Atomic job tracking: One record per unlock
+# Frontend can poll this instead of querying all insights
+# Analytics goldmine: Track which categories take longest, cost most
+# Retry logic: Know exactly what failed
+
+
+
 
 class MessageType(enum.Enum):
     USER = "user"

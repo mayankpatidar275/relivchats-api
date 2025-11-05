@@ -14,8 +14,14 @@ router = APIRouter(
 )
 
 @router.post("/store", response_model=schemas.UserOut)
-def store_user(user: schemas.UserStore, db: Session = Depends(get_db)):
+def store_user(
+    user: schemas.UserStore,     
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    db: Session = Depends(get_db)):
     db_user = service.store_user_on_login(db=db, user=user)
+    # Give signup bonus (50 coins) - NEW
+    credit_service = CreditService(db)
+    credit_service.add_signup_bonus(user_id, bonus_amount=50)
     return db_user
 
 @router.delete("/delete-account", response_model=schemas.UserDeleteResponse)
@@ -69,31 +75,31 @@ async def delete_account(
         user_id=user_id
     )
 
-@router.post("/clerk-webhook")
-async def clerk_webhook(request: Request, db: Session = Depends(get_db)):
-    """Handle Clerk webhook events"""
-    try:
-        event_data = await request.json()
-        event_type = event_data.get("type")
+# @router.post("/clerk-webhook")
+# async def clerk_webhook(request: Request, db: Session = Depends(get_db)):
+#     """Handle Clerk webhook events"""
+#     try:
+#         event_data = await request.json()
+#         event_type = event_data.get("type")
         
-        if event_type == "user.created":
-            user_data = event_data.get("data")
-            user_id = user_data.get("id")
-            email = user_data.get("email_addresses", [{}])[0].get("email_address")
+#         if event_type == "user.created":
+#             user_data = event_data.get("data")
+#             user_id = user_data.get("id")
+#             email = user_data.get("email_addresses", [{}])[0].get("email_address")
             
-            # Create user
-            new_user = service.create_user(db, user_id, email)
+#             # Create user
+#             new_user = service.create_user(db, user_id, email)
             
-            # Give signup bonus (50 coins) - NEW
-            credit_service = CreditService(db)
-            credit_service.add_signup_bonus(user_id, bonus_amount=50)
+#             # Give signup bonus (50 coins) - NEW
+#             credit_service = CreditService(db)
+#             credit_service.add_signup_bonus(user_id, bonus_amount=50)
             
-            return {"status": "success", "user_id": user_id, "bonus_coins": 50}
+#             return {"status": "success", "user_id": user_id, "bonus_coins": 50}
             
-        return {"status": "ignored"}
+#         return {"status": "ignored"}
         
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
 # @router.get("/{user_id}", response_model=schemas.UserOut)
 # def get_user(user_id: str, db: Session = Depends(get_db)):

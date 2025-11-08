@@ -42,6 +42,17 @@ def read_root():
 def health_check():
     return {"status": "healthy"}
 
+# # Add this endpoint for emergency bulk indexing
+# @router.post("/admin/reindex-all")
+# def reindex_pending_chats(db: Session = Depends(get_db)):
+#     """Emergency: Index all pending chats"""
+#     chats = db.query(Chat).filter(Chat.vector_status == "pending").all()
+    
+#     for chat in chats:
+#         vector_service.create_chat_chunks(db, chat.id)
+    
+#     return {"reindexed": len(chats)}
+
 
 ## **Final API Structure**
 

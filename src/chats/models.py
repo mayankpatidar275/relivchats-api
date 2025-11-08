@@ -18,6 +18,9 @@ class Chat(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     status = Column(String, default="processing")  # 'processing', 'completed', 'failed'
     error_log = Column(Text, nullable=True)  # Store parsing errors for debugging
+    platform = Column(String, default="whatsapp", nullable=False)  # whatsapp, instagram, telegram
+    is_group_chat = Column(Boolean, default=False, nullable=False)
+    participant_count = Column(Integer, nullable=True)
     
     # Vector-related fields
     vector_status = Column(String, default="pending")  # 'pending', 'indexing', 'completed', 'failed'

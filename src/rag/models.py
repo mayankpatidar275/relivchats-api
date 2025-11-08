@@ -51,6 +51,9 @@ class InsightType(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), onupdate=func.now())
+
+    supports_group_chats = Column(Boolean, default=False, nullable=False)
+    max_participants = Column(Integer, nullable=True)  # NULL = unlimited
     
     # Relationships
     categories = relationship("CategoryInsightType", back_populates="insight_type", cascade="all, delete-orphan")

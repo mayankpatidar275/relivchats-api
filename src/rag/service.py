@@ -119,11 +119,11 @@ def build_insight_prompt(
     
     # Format RAG chunks as text
     chunks_text = "\n\n".join([
-        f"--- Message Chunk {i+1} ---\n"
+        f"--- Message Chunk {i+1} (Index: {i}) ---\n"
         f"Speakers: {', '.join(chunk.speakers)}\n"
-        f"Time Period: {chunk.time_span}\n"
-        f"Messages: {chunk.message_count}\n"
-        f"Content:\n{chunk.content}"
+        f"Time Span: {chunk.time_span}\n"
+        f"Message Count: {chunk.message_count}\n\n"
+        f"{chunk.content}"  # This now has timestamps from new chunking
         for i, chunk in enumerate(context.rag_chunks)
     ])
     
@@ -458,6 +458,13 @@ def generate_insight_with_context(
     
     if not chat.chat_metadata:
         raise ValueError(f"Chat {chat_id} has no metadata. Process chat first.")
+    
+    # After fetching insight_type and chat:
+    if chat.is_group_chat and not insight_type.supports_group_chats:
+        raise ValueError(f"Insight '{insight_type.display_title}' doesn't support group chats")
+
+    if insight_type.max_participants and chat.participant_count > insight_type.max_participants:
+        raise ValueError(f"This insight supports max {insight_type.max_participants} participants")
     
     # 3. Get or create insight record
     insight = db.query(Insight).filter_by(

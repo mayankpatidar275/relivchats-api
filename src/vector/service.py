@@ -67,7 +67,7 @@ class VectorService:
                 return True
 
             # Create conversation chunks
-            chunks = chunk_chat_messages(messages)
+            chunks = chunk_chat_messages(messages, platform=chat.platform)
 
             # print("chunk_chat_messages:  ",chunks)
             

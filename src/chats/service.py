@@ -281,6 +281,8 @@ def process_whatsapp_file(
         # Update chat with parsed information
         chat.title = title
         chat.participants = json.dumps(participants)
+        chat.is_group_chat = len(participants) > 2
+        chat.participant_count = len(participants)
         chat.chat_metadata = metadata
         chat.status = "completed"
         chat.error_log = None  # Clear any previous errors

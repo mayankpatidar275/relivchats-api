@@ -25,15 +25,29 @@ class ConversationChunker:
         self,
         max_chunk_size: int = settings.MAX_CHUNK_SIZE,
         min_chunk_size: int = settings.MIN_CHUNK_SIZE,
-        time_window_minutes: int = settings.TIME_WINDOW_MINUTES
+        time_window_minutes: int = settings.TIME_WINDOW_MINUTES,
+        platform: str = "whatsapp"  # Future-proof for other platforms
     ):
         self.max_chunk_size = max_chunk_size
         self.min_chunk_size = min_chunk_size
         self.time_window = timedelta(minutes=time_window_minutes)
+        self.platform = platform
 
     def estimate_tokens(self, text: str) -> int:
         """Rough token estimation (1 token ≈ 4 characters)"""
         return len(text) // 4
+
+    def _format_timestamp(self, timestamp: datetime) -> str:
+        """Format timestamp based on platform"""
+        if self.platform == "whatsapp":
+            return timestamp.strftime('%d/%m/%y, %I:%M:%S %p')
+        elif self.platform == "instagram":
+            return timestamp.strftime('%b %d, %Y at %I:%M %p')
+        elif self.platform == "telegram":
+            return timestamp.strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            # Default ISO format
+            return timestamp.strftime('%Y-%m-%d %H:%M:%S')
 
     def should_break_chunk(
         self, 
@@ -46,7 +60,7 @@ class ConversationChunker:
 
         # Get current chunk text
         current_text = self._format_messages_to_text(current_chunk)
-        new_text = f"{current_text}\n{new_message.sender}: {new_message.content}"
+        new_text = f"{current_text}\n{self._format_single_message(new_message)}"
         
         # Check token limit
         if self.estimate_tokens(new_text) > self.max_chunk_size:
@@ -65,29 +79,14 @@ class ConversationChunker:
 
         return False
 
+    def _format_single_message(self, msg: ChunkMessage) -> str:
+        """Format a single message with timestamp"""
+        timestamp_str = self._format_timestamp(msg.timestamp)
+        return f"[{timestamp_str}] {msg.sender}: {msg.content}"
+
     def _format_messages_to_text(self, messages: List[ChunkMessage]) -> str:
-        """Convert messages to formatted text"""
-        lines = []
-        current_speaker = None
-        speaker_messages = []
-
-        for msg in messages:
-            if msg.sender != current_speaker:
-                # Flush previous speaker's messages
-                if speaker_messages:
-                    content = " ".join(speaker_messages)
-                    lines.append(f"{current_speaker}: {content}")
-                    speaker_messages = []
-                current_speaker = msg.sender
-            
-            speaker_messages.append(msg.content)
-
-        # Flush last speaker's messages
-        if speaker_messages:
-            content = " ".join(speaker_messages)
-            lines.append(f"{current_speaker}: {content}")
-
-        return "\n".join(lines)
+        """Convert messages to formatted text with timestamps (no merging)"""
+        return "\n".join([self._format_single_message(msg) for msg in messages])
 
     def _create_chunk_metadata(self, messages: List[ChunkMessage]) -> Dict[str, Any]:
         """Create metadata for a chunk"""
@@ -103,9 +102,12 @@ class ConversationChunker:
             "start_timestamp": start_time.isoformat(),
             "end_timestamp": end_time.isoformat(),
             "speakers": speakers,
+            "is_group_chat": len(speakers) > 2,
+            "participant_count": len(speakers),
             "message_count": len(messages),
             "message_ids": message_ids,
             "time_span_minutes": int((end_time - start_time).total_seconds() / 60),
+            "platform": self.platform
         }
 
     def chunk_messages(self, messages: List[ChunkMessage]) -> List[ConversationChunk]:
@@ -165,7 +167,7 @@ class ConversationChunker:
             
         return chunks
 
-def chunk_chat_messages(db_messages) -> List[ConversationChunk]:
+def chunk_chat_messages(db_messages, platform: str = "whatsapp") -> List[ConversationChunk]:
     """Convert database messages to chunks"""
     # Convert DB messages to ChunkMessage objects
     chunk_messages = []
@@ -177,5 +179,30 @@ def chunk_chat_messages(db_messages) -> List[ConversationChunk]:
             timestamp=msg.timestamp
         ))
     # Create chunker and process
-    chunker = ConversationChunker()
+    chunker = ConversationChunker(platform=platform)
     return chunker.chunk_messages(chunk_messages)
+
+
+    # def _format_messages_to_text(self, messages: List[ChunkMessage]) -> str:
+    #     """Convert messages to formatted text"""
+    #     lines = []
+    #     current_speaker = None
+    #     speaker_messages = []
+
+    #     for msg in messages:
+    #         if msg.sender != current_speaker:
+    #             # Flush previous speaker's messages
+    #             if speaker_messages:
+    #                 content = " ".join(speaker_messages)
+    #                 lines.append(f"{current_speaker}: {content}")
+    #                 speaker_messages = []
+    #             current_speaker = msg.sender
+            
+    #         speaker_messages.append(msg.content)
+
+    #     # Flush last speaker's messages
+    #     if speaker_messages:
+    #         content = " ".join(speaker_messages)
+    #         lines.append(f"{current_speaker}: {content}")
+
+    #     return "\n".join(lines)

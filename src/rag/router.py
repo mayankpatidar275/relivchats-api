@@ -1,3 +1,10 @@
+"""
+RAG API - Internal RAG operations and queries
+Endpoints:
+- POST /rag/query (conversational Q&A)
+- POST /rag/generate (legacy single insight generation - consider deprecating)
+"""
+
 from typing import Annotated
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
@@ -9,10 +16,8 @@ from ..chats.service import get_chat_by_id
 from . import schemas, service
 from .models import InsightStatus
 
-router = APIRouter(
-    prefix="/rag",
-    tags=["rag"],
-)
+router = APIRouter(prefix="/rag", tags=["rag"])
+
 
 @router.post("/query", response_model=schemas.RAGQueryResponse)
 def query_chat(
@@ -20,7 +25,10 @@ def query_chat(
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: Session = Depends(get_db)
 ):
-    """Ask a question about a specific chat using RAG"""
+    """
+    Ask a question about a specific chat using RAG
+    This is for conversational Q&A, not insight generation
+    """
     # Verify user owns the chat
     chat = get_chat_by_id(db, request.chat_id)
     if not chat:
@@ -51,14 +59,21 @@ def query_chat(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
-@router.post("/generate", response_model=schemas.InsightResponse)
+
+# DEPRECATED: Use POST /insights/unlock instead
+@router.post("/generate", response_model=schemas.InsightResponse, deprecated=True)
 def generate_insight(
     request: schemas.GenerateInsightRequest,
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: Session = Depends(get_db),
-    background_tasks: BackgroundTasks = None
+    # background_tasks: BackgroundTasks = None
 ):
-    """Generate or retrieve an insight for a chat"""
+    """
+    DEPRECATED: Generate single insight synchronously
+    Use POST /insights/unlock for batch generation
+    
+    This endpoint is kept for backward compatibility
+    """
     # Verify user owns the chat
     chat = get_chat_by_id(db, UUID(request.chat_id))
     if not chat:
@@ -107,7 +122,7 @@ def generate_insight(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate insight: {str(e)}")
-    
+
 # @router.get("/search/{chat_id}", response_model=List[schemas.SearchResultResponse])
 # def search_chat_chunks(
 #     chat_id: str,

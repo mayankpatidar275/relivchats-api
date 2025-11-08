@@ -159,3 +159,33 @@ class GeminiStructuredRequest(BaseModel):
     response_schema: Dict[str, Any]  # JSON schema for structured output
     temperature: float = 0.7
     max_tokens: Optional[int] = None
+
+
+# src/rag/schemas.py - ADD these response models
+
+from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
+from uuid import UUID
+
+# ... existing schemas ...
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    progress_percentage: float
+    total_insights: int
+    completed_insights: int
+    failed_insights: int
+    started_at: Optional[datetime]
+    estimated_completion_at: Optional[datetime]
+    completed_at: Optional[datetime]
+
+class ChatInsightsResponse(BaseModel):
+    chat_id: UUID
+    generation_status: str
+    unlocked_at: Optional[datetime]
+    total_requested: int
+    total_completed: int
+    total_failed: int
+    insights: List[InsightResponse]

@@ -1,3 +1,15 @@
+"""
+Chats API - Core chat operations
+Endpoints:
+- POST /chats/upload
+- GET /chats (list user chats)
+- GET /chats/{chat_id} (chat details)
+- PUT /chats/{chat_id}/display-name
+- GET /chats/{chat_id}/messages
+- GET /chats/{chat_id}/vector-status
+- DELETE /chats/{chat_id}
+"""
+
 import json
 import shutil
 from pathlib import Path
@@ -5,24 +17,24 @@ from typing import Annotated, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Form
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..config import settings
 from ..auth.dependencies import get_current_user_id
-from src.rag.models import AIConversation, AIMessage, Insight
 from . import schemas, service, models
-from src.rag.schemas import InsightResponse
 
 # Configure a directory to temporarily store uploaded files
 UPLOAD_FOLDER = Path("uploads")
 if not UPLOAD_FOLDER.exists():
     UPLOAD_FOLDER.mkdir()
 
-router = APIRouter(
-    prefix="/chats",
-    tags=["chats"],
-)
+router = APIRouter(prefix="/chats", tags=["chats"])
+
+
+# ============================================================================
+# UPLOAD CHAT
+# ============================================================================
 
 @router.post("/upload", response_model=schemas.ChatUploadResponse)
 def upload_whatsapp_file(
@@ -91,8 +103,13 @@ def upload_whatsapp_file(
                 # Log the cleanup error but don't fail the request
                 print(f"Warning: Failed to clean up temp file {file_path}: {cleanup_error}")
 
+
+# ============================================================================
+# LIST USER CHATS
+# ============================================================================
+
 @router.get("", response_model=List[schemas.GetChatResponse])
-def get_user_chats(
+def list_user_chats(
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: Session = Depends(get_db)
 ):
@@ -109,6 +126,33 @@ def get_user_chats(
             continue
 
     return response
+
+
+# ============================================================================
+# GET SINGLE CHAT
+# ============================================================================
+
+@router.get("/{chat_id}", response_model=schemas.GetChatResponse)
+def get_chat_details(
+    chat_id: UUID,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    db: Session = Depends(get_db)
+):
+    """Get detailed information about a specific chat"""
+    chat = service.get_chat_by_id(db, chat_id)
+    
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    if chat.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this chat")
+    
+    return schemas.GetChatResponse.from_orm(chat)
+
+
+# ============================================================================
+# UPDATE DISPLAY NAME
+# ============================================================================
 
 @router.put("/{chat_id}/display-name", response_model=schemas.ChatUploadResponse)
 def update_user_display_name(
@@ -130,41 +174,33 @@ def update_user_display_name(
     
     return schemas.ChatUploadResponse.from_orm(chat)
 
-@router.get("/{chat_id}/insights", response_model=List[schemas.InsightWithTypeResponse])
-def get_chat_insights(
-    chat_id: UUID,
-    user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Session = Depends(get_db)
-):
-    """Get all available insight types for a chat with generation status"""
-    # Verify user owns the chat
-    chat = service.get_chat_by_id(db, chat_id)
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    
-    if chat.user_id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to access this chat")
-    
-    # Check if chat is ready
-    if chat.vector_status != "completed":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Chat is not ready. Current status: {chat.vector_status}"
-        )
-    
-    try:
-        insights = service.get_chat_insights_with_types(db, chat_id)
-        return insights
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch insights: {str(e)}")
 
-@router.get("/{chat_id}", response_model=schemas.GetChatResponse)
-def get_chat_details(
+# ============================================================================
+# GET CHAT MESSAGES
+# ============================================================================
+
+@router.get("/{chat_id}/messages", response_model=List[schemas.ChatMessagesResponse])
+def get_chat_messages(
     chat_id: UUID,
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: Session = Depends(get_db)
 ):
-    """Get detailed information about a specific chat"""
+    """Get all messages for a chat"""
+    messages = service.get_chat_messages(db, chat_id, user_id)
+    return messages
+
+
+# ============================================================================
+# VECTOR STATUS
+# ============================================================================
+
+@router.get("/{chat_id}/vector-status", response_model=schemas.VectorStatusResponse)
+def get_chat_vector_status(
+    chat_id: str,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    db: Session = Depends(get_db)
+):
+    """Get vector indexing status for a chat"""
     chat = service.get_chat_by_id(db, chat_id)
     
     if not chat:
@@ -173,69 +209,18 @@ def get_chat_details(
     if chat.user_id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to access this chat")
     
-    return schemas.GetChatResponse.from_orm(chat)
+    return schemas.VectorStatusResponse(
+        chat_id=chat.id,
+        vector_status=getattr(chat, 'vector_status', 'pending'),
+        chunk_count=getattr(chat, 'chunk_count', 0),
+        indexed_at=getattr(chat, 'indexed_at', None),
+        is_searchable=getattr(chat, 'vector_status', 'pending') == 'completed'
+    )
 
 
-@router.get("/{chat_id}/insights", response_model=List[InsightResponse])
-def get_chat_insights(
-    chat_id: UUID,
-    user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Session = Depends(get_db)
-):
-    """Get all insights for a chat"""
-    chat = service.get_chat_by_id(db, chat_id)
-    
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    
-    if chat.user_id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    
-    insights = db.query(Insight)\
-        .options(joinedload(Insight.insight_type))\
-        .filter(Insight.chat_id == chat_id)\
-        .all()
-    
-    return [InsightResponse.from_orm(insight) for insight in insights]
-
-
-@router.get("/chats/{chat_id}/stats")
-def get_public_chat_stats(
-    chat_id: UUID,
-    db: Session = Depends(get_db)
-):
-    """Get public chat statistics (no auth required)"""
-    chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
-    
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    
-    # Return only public stats (no message content)
-    return {
-        "id": str(chat.id),
-        "filename": chat.title,
-        "participants": json.loads(chat.participants) if chat.participants else [],
-        "chat_metadata": chat.chat_metadata,
-        "created_at": chat.created_at,
-    }
-# @router.delete("/{chat_id}", status_code=204)
-# def delete_chat_endpoint(
-#     chat_id: UUID,
-#     user_id: Annotated[str, Depends(get_current_user_id)],
-#     db: Session = Depends(get_db),
-# ):
-#     """Delete a specific chat"""
-#     chat = service.get_chat_by_id(db, chat_id)
-#     if not chat:
-#         raise HTTPException(status_code=404, detail="Chat not found")
-#     if chat.user_id != user_id:
-#         raise HTTPException(status_code=403, detail="Not authorized")
-
-#     success = service.delete_chat(db, chat_id)
-#     if not success:
-#         raise HTTPException(status_code=500, detail="Failed to delete chat")
-#     return
-
+# ============================================================================
+# DELETE CHAT
+# ============================================================================
 
 @router.delete("/{chat_id}", response_model=schemas.ChatDeleteResponse)
 def soft_delete_chat(
@@ -259,17 +244,10 @@ def soft_delete_chat(
     # Soft delete chat and related data
     deleted_chat = service.soft_delete_chat(db, chat.id)
     if not deleted_chat:
-        raise HTTPException(
-            status_code=500, 
-            detail="Failed to delete chat"
-        )
+        raise HTTPException(status_code=500, detail="Failed to delete chat")
 
     # Schedule permanent cleanup in background
-    background_tasks.add_task(
-        service.delete_chat, 
-        db, 
-        chat.id
-    )
+    background_tasks.add_task(service.delete_chat, db, chat.id)
     
     return schemas.ChatDeleteResponse(
         success=True,
@@ -278,15 +256,9 @@ def soft_delete_chat(
     )
 
 
-@router.get("/{chat_id}/messages", response_model=List[schemas.ChatMessagesResponse])
-def get_user_chats(
-    chat_id: UUID,
-    user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Session = Depends(get_db)
-):
-    """Get all chat messages"""
-    messages = service.get_chat_messages(db, chat_id, user_id)
-    return messages
+# ============================================================================
+# AI CONVERSATION (LEGACY - CONSIDER MOVING TO /rag)
+# ============================================================================
 
 @router.get("/{chat_id}/ai-conversation", response_model=schemas.AIConversationResponse)
 def get_chat_ai_conversation_endpoint(
@@ -330,30 +302,47 @@ def get_chat_ai_conversation_endpoint(
     )
 
 
-# VECTOR-RELATED ENDPOINTS
+# ============================================================================
+# PUBLIC STATS (NO AUTH)
+# ============================================================================
 
-@router.get("/{chat_id}/vector-status", response_model=schemas.VectorStatusResponse)
-def get_chat_vector_status(
-    chat_id: str,
-    user_id: Annotated[str, Depends(get_current_user_id)],
+@router.get("/public/{chat_id}/stats")
+def get_public_chat_stats(
+    chat_id: UUID,
     db: Session = Depends(get_db)
 ):
-    """Get vector indexing status for a chat"""
-    chat = service.get_chat_by_id(db, chat_id)
+    """Get public chat statistics (no auth required)"""
+    chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
     
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     
-    if chat.user_id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to access this chat")
-    
-    return schemas.VectorStatusResponse(
-        chat_id=chat.id,
-        vector_status=getattr(chat, 'vector_status', 'pending'),
-        chunk_count=getattr(chat, 'chunk_count', 0),
-        indexed_at=getattr(chat, 'indexed_at', None),
-        is_searchable=getattr(chat, 'vector_status', 'pending') == 'completed'
-    )
+    return {
+        "id": str(chat.id),
+        "filename": chat.title,
+        "participants": json.loads(chat.participants) if chat.participants else [],
+        "chat_metadata": chat.chat_metadata,
+        "created_at": chat.created_at,
+    }
+
+
+# @router.delete("/{chat_id}", status_code=204)
+# def delete_chat_endpoint(
+#     chat_id: UUID,
+#     user_id: Annotated[str, Depends(get_current_user_id)],
+#     db: Session = Depends(get_db),
+# ):
+#     """Delete a specific chat"""
+#     chat = service.get_chat_by_id(db, chat_id)
+#     if not chat:
+#         raise HTTPException(status_code=404, detail="Chat not found")
+#     if chat.user_id != user_id:
+#         raise HTTPException(status_code=403, detail="Not authorized")
+
+#     success = service.delete_chat(db, chat_id)
+#     if not success:
+#         raise HTTPException(status_code=500, detail="Failed to delete chat")
+#     return
 
 # @router.post("/{chat_id}/reindex")
 # def reindex_chat_vectors(

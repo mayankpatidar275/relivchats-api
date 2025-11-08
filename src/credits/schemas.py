@@ -58,7 +58,7 @@ class UnlockInsightsResponse(BaseModel):
     coins_deducted: int
     remaining_balance: int
     total_insights: int
-    estimated_time_seconds: int
+    estimated_time_seconds: Optional[float]
     message: str
 
 

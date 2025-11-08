@@ -254,8 +254,15 @@ def save_messages_to_db(db: Session, chat_id: UUID, whatstk_chat) -> int:
     
     return len(messages)
 
-def process_whatsapp_file(chat_id: UUID, file_path: str, db: Session):
-    """Process WhatsApp file synchronously and trigger vector indexing"""
+def process_whatsapp_file(
+    chat_id: UUID,
+    file_path: str,
+    db: Session
+) -> models.Chat:
+    """
+    Process WhatsApp chat file and store in database
+    NOTE: Does NOT trigger vector indexing (lazy loading)
+    """
     chat = None
     error_message = ""
     
@@ -313,6 +320,9 @@ def process_whatsapp_file(chat_id: UUID, file_path: str, db: Session):
         except Exception as cleanup_error:
             print(f"Warning: Failed to clean up file {file_path}: {cleanup_error}")
             
+
+            
+# REMOVE THIS FUNCTION (or mark deprecated)
 def trigger_vector_indexing(db: Session, chat_id: UUID):
     """Trigger vector indexing for a completed chat"""
     try:

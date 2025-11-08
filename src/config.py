@@ -7,6 +7,16 @@ class Settings(BaseSettings):
     MAX_UPLOAD_SIZE_MB: int = 25 # Maximum file size in MB
     MAX_UPLOAD_SIZE_BYTES: int = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
+    # Redis & Celery
+    REDIS_URL: str = "redis://localhost:6379/0"
+    CELERY_BROKER_URL: str = "redis://localhost:6379/0"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/0"
+
+    # Generation settings
+    MAX_CONCURRENT_INSIGHTS: int = 3  # Generate 3 insights in parallel
+    INSIGHT_GENERATION_TIMEOUT: int = 120  # 2 minutes per insight
+    RAG_CHUNK_CACHE_TTL: int = 3600  # Cache RAG chunks for 1 hour
+    
     # Vector Database Settings
     # QDRANT_HOST: str = os.getenv("QDRANT_HOST", "localhost")
     # QDRANT_PORT: int = int(os.getenv("QDRANT_PORT", "6333"))

@@ -1,6 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+"""
+Credits API - Payment and transaction management
+Endpoints:
+- GET /credits/balance
+- GET /credits/transactions
+- GET /credits/packages
+"""
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from typing import Annotated
+
 from ..database import get_db
 from ..auth.dependencies import get_current_user_id
 from . import schemas
@@ -55,30 +64,3 @@ def get_credit_packages(
     packages = service.get_packages(active_only=True)
     
     return [schemas.CreditPackageResponse.from_orm(p) for p in packages]
-
-
-@router.post("/unlock-insights", response_model=schemas.UnlockInsightsResponse)
-def unlock_insights(
-    request: schemas.UnlockInsightsRequest,
-    user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Session = Depends(get_db)
-):
-    """
-    Unlock all insights for a chat category
-    Deducts coins and creates insight records
-    """
-    service = CreditService(db)
-    
-    try:
-        result = service.unlock_insights_for_category(
-            user_id=user_id,
-            chat_id=request.chat_id,
-            category_id=request.category_id
-        )
-        
-        return schemas.UnlockInsightsResponse(**result)
-        
-    except HTTPException as e:
-        if e.status_code == 402:  # Insufficient credits
-            raise e
-        raise

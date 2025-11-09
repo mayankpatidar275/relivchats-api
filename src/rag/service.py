@@ -132,13 +132,26 @@ def build_insight_prompt(
     
     # Inject context into template
     # Template can use placeholders: {user_name}, {partner_name}, {metadata}, {chunks}
+    # final_prompt = prompt_template.format(
+    #     user_name=context.user_display_name,
+    #     partner_name=context.partner_name or "the other person",
+    #     chat_title=context.chat_title or "this chat",
+    #     metadata=metadata_text,
+    #     chunks=chunks_text,
+    #     total_chunks=len(context.rag_chunks)
+    # )
+    participants = list(context.chat_metadata.get("user_stats", {}).keys())
+    participant_list = ", ".join(participants)
+
     final_prompt = prompt_template.format(
-        user_name=context.user_display_name,
-        partner_name=context.partner_name or "the other person",
+        participant_count=len(participants),
+        participant_list=participant_list,
         chat_title=context.chat_title or "this chat",
         metadata=metadata_text,
         chunks=chunks_text,
-        total_chunks=len(context.rag_chunks)
+        total_chunks=len(context.rag_chunks),
+        total_messages=context.chat_metadata.get("total_messages"),
+        total_days=context.chat_metadata.get("total_days"),
     )
     
     return final_prompt
@@ -514,7 +527,6 @@ def generate_insight_with_context(
             chat_metadata=chat.chat_metadata,
             required_fields=insight_type.required_metadata_fields
         )
-        
         # 6. Build prompt context
         prompt_context = schemas.InsightPromptContext(
             user_display_name=chat.user_display_name or "User",
@@ -523,7 +535,6 @@ def generate_insight_with_context(
             rag_chunks=rag_chunks,
             chat_title=chat.title
         )
-        
         # 7. Build final prompt
         final_prompt = build_insight_prompt(
             prompt_template=insight_type.prompt_template,

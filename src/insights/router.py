@@ -18,7 +18,7 @@ from ..credits.service import CreditService
 from ..rag.generation_service import InsightGenerationOrchestrator
 from ..rag.tasks import retry_failed_insight
 from ..rag import schemas as rag_schemas
-from ..rag.models import Insight
+from ..rag.models import Insight, AnalysisCategory
 from ..rag.service import create_insight_response
 from ..chats.models import Chat
 from ..credits import schemas as credit_schemas
@@ -127,6 +127,13 @@ def get_chat_insights(
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
     
+    # Get category info if insights unlocked
+    category = None
+    if chat.category_id:
+        category = db.query(AnalysisCategory).filter(
+            AnalysisCategory.id == chat.category_id
+        ).first()
+    
     # Get all insights
     insights = db.query(Insight).filter(
         Insight.chat_id == chat_id
@@ -134,6 +141,12 @@ def get_chat_insights(
     
     return rag_schemas.ChatInsightsResponse(
         chat_id=chat_id,
+        category=rag_schemas.CategoryBasicResponse(
+            id=category.id,
+            name=category.name,
+            display_name=category.display_name,
+            icon=category.icon
+        ) if category else None,
         generation_status=chat.insights_generation_status or "not_started",
         unlocked_at=chat.insights_unlocked_at,
         total_requested=chat.total_insights_requested or 0,

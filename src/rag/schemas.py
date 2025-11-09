@@ -147,7 +147,7 @@ class RAGChunk(BaseModel):
 
 class InsightPromptContext(BaseModel):
     """Context passed to prompt builder"""
-    user_display_name: str
+    user_display_name: Optional[str]
     partner_name: Optional[str]
     chat_metadata: Dict[str, Any]  # Filtered metadata based on required_fields
     rag_chunks: List[RAGChunk]
@@ -181,8 +181,26 @@ class JobStatusResponse(BaseModel):
     estimated_completion_at: Optional[datetime]
     completed_at: Optional[datetime]
 
+# class ChatInsightsResponse(BaseModel):
+#     chat_id: UUID
+#     generation_status: str
+#     unlocked_at: Optional[datetime]
+#     total_requested: int
+#     total_completed: int
+#     total_failed: int
+#     insights: List[InsightResponse]
+
+
+
+class CategoryBasicResponse(BaseModel):
+    id: UUID
+    name: str
+    display_name: str
+    icon: str
+
 class ChatInsightsResponse(BaseModel):
     chat_id: UUID
+    category: Optional[CategoryBasicResponse]  # NEW
     generation_status: str
     unlocked_at: Optional[datetime]
     total_requested: int

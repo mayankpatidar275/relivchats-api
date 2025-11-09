@@ -449,41 +449,6 @@ docker run -d \
 docker logs -f relivchats-api
 ```
 
-### Render.com (Recommended)
-
-```yaml
-# render.yaml
-services:
-  - type: web
-    name: relivchats-api
-    env: python
-    buildCommand: pip install -r requirements/prod.txt
-    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: relivchats-db
-          property: connectionString
-      - key: GEMINI_API_KEY
-        sync: false
-
-  - type: worker
-    name: relivchats-celery
-    env: python
-    buildCommand: pip install -r requirements/prod.txt
-    startCommand: celery -A src.celery_app worker --loglevel=info --concurrency=4
-
-  - type: redis
-    name: relivchats-redis
-
-databases:
-  - name: relivchats-db
-    databaseName: relivchats
-    user: relivchats
-```
-
-Deploy: `git push render main`
-
 ---
 
 ## 📈 Monitoring

@@ -56,3 +56,20 @@ VALUES (
     (SELECT id FROM insight_types WHERE name = 'conflict_resolution'),
     1
 );
+
+INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
+VALUES (
+    gen_random_uuid(), -- FIX: Explicitly generate the UUID for the primary key
+    (SELECT id FROM analysis_categories WHERE name = 'romantic'),
+    (SELECT id FROM insight_types WHERE name = 'future_planning'),
+    1
+);
+
+INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
+VALUES (
+    gen_random_uuid(), -- FIX: Explicitly generate the UUID for the primary key
+    (SELECT id FROM analysis_categories WHERE name = 'romantic'),
+    (SELECT id FROM insight_types WHERE name = 'playfulness_romance'),
+    1
+);
+

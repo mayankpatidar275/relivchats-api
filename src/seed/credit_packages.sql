@@ -1,5 +1,40 @@
-INSERT INTO credit_packages (id, name, coins, price_usd, is_popular, sort_order, description)
-        VALUES 
-            (gen_random_uuid(), 'Starter', 200, 2.99, false, 1, '4 Friendship/Family or 2 Romantic/Work insights'),
-            (gen_random_uuid(), 'Popular', 500, 5.99, true, 2, 'Best value - 10 Friendship/Family or 5 Romantic/Work insights'),
-            (gen_random_uuid(), 'Pro', 1500, 14.99, false, 3, 'Maximum savings - 30 Friendship/Family or 15 Romantic/Work insights');
+
+-- Insert new packages (Final Plan)
+INSERT INTO credit_packages (id, name, coins, price_usd, price_inr, description, is_active, is_popular, sort_order, stripe_price_id) 
+VALUES
+(
+    gen_random_uuid(),
+    'Starter',
+    400,
+    4.99,
+    399,
+    'Perfect for trying your first romantic analysis',
+    true,
+    false,
+    1,
+    NULL
+),
+(
+    gen_random_uuid(),
+    'Popular',
+    850,
+    9.99,
+    799,
+    'Best value - Unlock 2 romantic insights with extra coins',
+    true,
+    true,  -- Mark as popular
+    2,
+    NULL
+),
+(
+    gen_random_uuid(),
+    'Pro',
+    1600,
+    17.99,
+    1499,
+    'Power user pack - Analyze multiple chats or categories',
+    true,
+    false,
+    3,
+    NULL
+);

@@ -56,6 +56,7 @@ class CreditPackage(Base):
     name = Column(String, nullable=False)  # "Starter", "Popular", "Pro"
     coins = Column(Integer, nullable=False)
     price_usd = Column(Numeric(10, 2), nullable=False)  # Store as decimal for precision
+    price_inr = Column(Numeric(10, 2), nullable=False)
     
     # Display metadata
     description = Column(String, nullable=True)

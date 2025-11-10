@@ -24,6 +24,7 @@ class CreditPackageResponse(BaseModel):
     name: str
     coins: int
     price_usd: Decimal
+    price_inr: Decimal
     description: Optional[str] = None
     is_popular: bool
     sort_order: int

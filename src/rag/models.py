@@ -22,6 +22,7 @@ class AnalysisCategory(Base):
     display_name = Column(String, nullable=False)  # "Romantic Relationship"
     description = Column(Text, nullable=True)
     icon = Column(String, nullable=True)  # emoji or icon name
+    credit_cost = Column(Integer, nullable=False, default=400)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     

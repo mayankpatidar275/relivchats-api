@@ -117,6 +117,14 @@ def build_insight_prompt(
 ) -> str:
     """Build final prompt by injecting metadata and RAG chunks into template"""
     
+    # Check if we have enough data
+    if len(context.rag_chunks) < 2:
+        return f"""
+        **IMPORTANT**: Very limited data available ({len(context.rag_chunks)} conversation excerpts).
+        Provide insights based on what's available, but note limitations clearly.
+        Use phrases like "Based on limited data..." and "More conversation history needed for complete analysis..."
+        """
+    
     # Format RAG chunks as text
     chunks_text = "\n\n".join([
         f"--- Message Chunk {i+1} (Index: {i}) ---\n"
@@ -132,14 +140,6 @@ def build_insight_prompt(
     
     # Inject context into template
     # Template can use placeholders: {user_name}, {partner_name}, {metadata}, {chunks}
-    # final_prompt = prompt_template.format(
-    #     user_name=context.user_display_name,
-    #     partner_name=context.partner_name or "the other person",
-    #     chat_title=context.chat_title or "this chat",
-    #     metadata=metadata_text,
-    #     chunks=chunks_text,
-    #     total_chunks=len(context.rag_chunks)
-    # )
     participants = list(context.chat_metadata.get("user_stats", {}).keys())
     participant_list = ", ".join(participants)
 

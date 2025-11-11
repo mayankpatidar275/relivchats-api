@@ -1,6 +1,7 @@
 services:
   app:
-    image: ${DOCKER_USERNAME}/relivchats-api:latest
+    build: .
+    # image: ${DOCKER_USERNAME}/relivchats-api:latest
     container_name: relivchats-api
     restart: unless-stopped
     environment:
@@ -41,7 +42,7 @@ services:
       - QDRANT_URL=${QDRANT_URL}
     depends_on:
       - redis
-      - db
+      # - db
     restart: unless-stopped
 
   celery_beat: # For scheduled tasks (future use)
@@ -55,7 +56,7 @@ services:
       - REDIS_URL=${REDIS_URL}
     depends_on:
       - redis
-      - db
+      # - db
     restart: unless-stopped
 
   flower: # Monitoring UI at http://localhost:5555

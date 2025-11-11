@@ -7,6 +7,7 @@ from .rag.router import router as rag_router
 from .categories.router import router as category_router
 from .credits.router import router as credit_router
 from .insights.router import router as insights_router
+from .payments.router import router as payment_router
 
 app = FastAPI(
     title="RelivChats API",
@@ -30,6 +31,8 @@ app.include_router(insights_router, prefix='/api')
 app.include_router(rag_router, prefix='/api')
 app.include_router(category_router, prefix='/api')
 app.include_router(credit_router, prefix='/api')
+app.include_router(payment_router, prefix='/api')
+
 
 @app.get("/")
 def read_root():

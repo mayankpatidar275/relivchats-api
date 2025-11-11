@@ -22,3 +22,6 @@ langchain-google-genai>=0.0.8
 celery[redis]==5.5.3
 redis==5.0.1
 flower==2.0.1  # Celery monitoring UI (optional but recommended)
+
+razorpay==1.4.2
+stripe==7.9.0

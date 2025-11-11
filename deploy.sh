@@ -20,6 +20,9 @@ fi
 mkdir -p /home/$USER/relivchats-api
 cd /home/$USER/relivchats-api
 
+# Create uploads directory
+mkdir -p uploads
+
 echo "✅ Server setup complete!"
 echo ""
 echo "Next steps:"
@@ -30,3 +33,4 @@ echo ""
 echo "After deployment:"
 echo "- Access Nginx Proxy Manager at http://YOUR_SERVER_IP:81"
 echo "- Default login: admin@example.com / changeme"
+echo "- Access Flower (Celery monitoring) at http://YOUR_SERVER_IP:5555"

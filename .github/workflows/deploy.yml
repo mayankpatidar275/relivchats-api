@@ -42,16 +42,31 @@ jobs:
             cd /home/${{ secrets.USERNAME }}/relivchats-api
 
             # Create .env file with secrets
-            cat > .env << EOF
+            cat > .env << 'EOF'
             DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
-            DATABASE_URL="${{ secrets.DATABASE_URL }}"
-            QDRANT_URL="${{ secrets.QDRANT_URL }}"
-            QDRANT_API_KEY="${{ secrets.QDRANT_API_KEY }}"
-            CLERK_SECRET_KEY="${{ secrets.CLERK_SECRET_KEY }}"
-            GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}"
-            REDIS_URL="${{ secrets.REDIS_URL }}"
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            REDIS_URL=${{ secrets.REDIS_URL }}
+            QDRANT_URL=${{ secrets.QDRANT_URL }}
+            QDRANT_API_KEY=${{ secrets.QDRANT_API_KEY }}
+            CLERK_SECRET_KEY=${{ secrets.CLERK_SECRET_KEY }}
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
             EOF
 
-            docker-compose pull app
+            # Pull latest images
+            docker-compose pull
+
+            # Stop and remove old containers
+            docker-compose down
+
+            # Start services
             docker-compose up -d
-            docker system prune -f
+
+            # Wait for health checks
+            echo "Waiting for services to be healthy..."
+            sleep 10
+
+            # Check service status
+            docker-compose ps
+
+            # Clean up
+            docker system prune -af --volumes

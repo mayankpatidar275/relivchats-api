@@ -3,25 +3,38 @@ services:
     image: ${DOCKER_USERNAME}/relivchats-api:latest
     container_name: relivchats-api
     restart: unless-stopped
+    ports:
+      - "8000:8000"
     environment:
       - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
       - QDRANT_URL=${QDRANT_URL}
       - QDRANT_API_KEY=${QDRANT_API_KEY}
       - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
     volumes:
       - ./uploads:/app/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
     networks:
       - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   redis:
     image: redis:7-alpine
     container_name: relivchats_redis
-    ports:
-      - "6379:6379"
+    restart: unless-stopped
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
+    networks:
+      - app-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -29,56 +42,63 @@ services:
       retries: 3
 
   celery_worker:
-    build: .
+    image: ${DOCKER_USERNAME}/relivchats-api:latest
     container_name: relivchats_celery_worker
+    restart: unless-stopped
     command: celery -A src.celery_app worker --loglevel=info --concurrency=4
-    volumes:
-      - .:/app
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - QDRANT_URL=${QDRANT_URL}
-    depends_on:
-      - redis
-      - db
-    restart: unless-stopped
-
-  celery_beat: # For scheduled tasks (future use)
-    build: .
-    container_name: relivchats_celery_beat
-    command: celery -A src.celery_app beat --loglevel=info
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
     volumes:
-      - .:/app
+      - ./uploads:/app/uploads
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  celery_beat:
+    image: ${DOCKER_USERNAME}/relivchats-api:latest
+    container_name: relivchats_celery_beat
+    restart: unless-stopped
+    command: celery -A src.celery_app beat --loglevel=info
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
     depends_on:
-      - redis
-      - db
-    restart: unless-stopped
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
 
-  flower: # Monitoring UI at http://localhost:5555
-    build: .
+  flower:
+    image: ${DOCKER_USERNAME}/relivchats-api:latest
     container_name: relivchats_flower
+    restart: unless-stopped
     command: celery -A src.celery_app flower --port=5555
     ports:
       - "5555:5555"
     environment:
       - CELERY_BROKER_URL=${REDIS_URL}
+      - REDIS_URL=${REDIS_URL}
     depends_on:
-      - redis
-      - celery_worker
-    restart: unless-stopped
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
 
   nginx-proxy-manager:
-    image: "jc21/nginx-proxy-manager:latest"
+    image: jc21/nginx-proxy-manager:latest
     container_name: nginx-proxy-manager
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
-      - "81:81" # Admin UI
+      - "81:81"
     environment:
       - DB_SQLITE_FILE=/data/database.sqlite
     volumes:

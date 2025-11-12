@@ -14,7 +14,7 @@ from .schemas import (
 from .base import PaymentProvider
 from ..config import settings
 
-router = APIRouter(prefix="/api/payments", tags=["payments"])
+router = APIRouter(prefix="/payments", tags=["payments"])
 
 def get_payment_service(db: AsyncSession = Depends(get_db)) -> PaymentService:
     """Dependency for PaymentService"""
@@ -47,7 +47,7 @@ async def create_payment_order(
         # Get package details (you'll need to fetch from credit_packages table)
         from ..credits.service import CreditService
         credit_service = CreditService(payment_service.db)
-        package = await credit_service.get_package(request.package_id)
+        package = credit_service.get_package(request.package_id)
         
         if not package:
             raise HTTPException(status_code=404, detail="Package not found")
@@ -79,8 +79,8 @@ async def create_payment_order(
             currency=order.currency,
             coins=order.coins,
             provider=order.provider,
-            client_secret=order.metadata.get("client_secret"),
-            checkout_url=order.metadata.get("checkout_url")
+            client_secret=order.payment_order_metadata.get("client_secret"),
+            checkout_url=order.payment_order_metadata.get("checkout_url")
         )
         
     except Exception as e:

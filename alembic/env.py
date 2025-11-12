@@ -20,6 +20,8 @@ from src.rag.models import AnalysisCategory
 from src.rag.models import CategoryInsightType
 from src.rag.models import InsightType
 from src.rag.models import Insight
+from src.payments.models import PaymentOrder
+from src.payments.models import PaymentRefund
 
 # this is the Alembic Config object
 config = context.config

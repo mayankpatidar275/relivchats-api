@@ -39,14 +39,14 @@ class Settings(BaseSettings):
     TIME_WINDOW_MINUTES: int = 10  # Max time gap for conversation grouping
 
     # # Razorpay Configuration
-    # RAZORPAY_KEY_ID: str
-    # RAZORPAY_KEY_SECRET: str
-    # RAZORPAY_WEBHOOK_SECRET: str
+    RAZORPAY_KEY_ID: str
+    RAZORPAY_KEY_SECRET: str
+    RAZORPAY_WEBHOOK_SECRET: str
     
     # # Stripe Configuration
-    # STRIPE_SECRET_KEY: str
-    # STRIPE_PUBLISHABLE_KEY: str
-    # STRIPE_WEBHOOK_SECRET: str
+    STRIPE_SECRET_KEY: str
+    STRIPE_PUBLISHABLE_KEY: str
+    STRIPE_WEBHOOK_SECRET: str
 
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra="ignore"  # 👈 allows extra env vars without raising errors
 )

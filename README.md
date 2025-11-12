@@ -451,6 +451,14 @@ docker logs -f relivchats-api
 
 ---
 
+### SSH command
+
+```
+ssh -i "path/to.key" ubuntu@<public-ip>
+```
+
+---
+
 ## 📈 Monitoring
 
 ### Celery Flower Dashboard

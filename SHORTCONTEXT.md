@@ -486,11 +486,11 @@ POST   /api/insights/refund          # Trigger refund (if >50% failed)
 - Complete frontend UI (27 components + 6 views)
 - Responsive design
 - Error handling basics
+- Razorpay payment integration
 - **Pricing finalized (50 signup, 400 per romantic, 3 packages)**
 
 ### 🚧 In Progress:
 
-- Razorpay payment integration
 - Refund logic
 - Transaction failure handling
 - Edge case testing

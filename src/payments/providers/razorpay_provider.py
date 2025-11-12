@@ -1,6 +1,7 @@
 # src/payments/providers/razorpay_provider.py
 import razorpay
 import hmac
+import uuid
 import hashlib
 from typing import Dict, Any, Optional
 from ..base import (
@@ -37,10 +38,12 @@ class RazorpayProvider(BasePaymentProvider):
         Razorpay expects amount in paise (100 paise = 1 INR)
         """
         try:
+            # create a short unique receipt (<=40 chars). Keep long IDs in notes.
+            receipt_short = f"rcpt_{uuid.uuid4().hex[:12]}"  # ~17 chars
             order_data = {
                 "amount": amount,  # Already in paise
                 "currency": currency,
-                "receipt": f"rcpt_{user_id}_{package_id}",
+                "receipt": receipt_short,
                 "notes": {
                     "user_id": user_id,
                     "package_id": package_id,
@@ -58,7 +61,7 @@ class RazorpayProvider(BasePaymentProvider):
                 metadata={
                     "user_id": user_id,
                     "package_id": package_id,
-                    "receipt": order_data["receipt"]
+                    "receipt": receipt_short
                 }
             )
             

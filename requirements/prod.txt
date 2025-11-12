@@ -25,3 +25,6 @@ flower==2.0.1  # Celery monitoring UI (optional but recommended)
 
 razorpay==1.4.2
 stripe==7.9.0
+
+asyncpg
+greenlet

@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
-from ..database import get_db
+from ..database import get_async_db
 from ..auth.dependencies import get_current_user_id
 from .service import PaymentService
 from .schemas import (
@@ -16,8 +16,9 @@ from ..config import settings
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
-def get_payment_service(db: AsyncSession = Depends(get_db)) -> PaymentService:
-    """Dependency for PaymentService"""
+
+def get_payment_service(db: AsyncSession = Depends(get_async_db)) -> PaymentService:
+    """Dependency for PaymentService (async variant)"""
     provider_configs = {
         "razorpay": {
             "key_id": settings.RAZORPAY_KEY_ID,
@@ -29,6 +30,7 @@ def get_payment_service(db: AsyncSession = Depends(get_db)) -> PaymentService:
             "webhook_secret": settings.STRIPE_WEBHOOK_SECRET
         }
     }
+    # PaymentService is expected to be async-friendly and accept AsyncSession
     return PaymentService(db, provider_configs)
 
 @router.post("/orders", response_model=CreateOrderResponse)
@@ -44,11 +46,9 @@ async def create_payment_order(
     the necessary details for the frontend to complete the payment.
     """
     try:
-        # Get package details (you'll need to fetch from credit_packages table)
         from ..credits.service import CreditService
-        credit_service = CreditService(payment_service.db)
-        package = credit_service.get_package(request.package_id)
-        
+        package = await CreditService.get_package_async(payment_service.db, request.package_id)
+
         if not package:
             raise HTTPException(status_code=404, detail="Package not found")
         
@@ -82,9 +82,12 @@ async def create_payment_order(
             client_secret=order.payment_order_metadata.get("client_secret"),
             checkout_url=order.payment_order_metadata.get("checkout_url")
         )
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/webhooks/razorpay")
 async def razorpay_webhook(
@@ -108,9 +111,12 @@ async def razorpay_webhook(
             raise HTTPException(status_code=400, detail="Invalid signature")
         
         return {"status": "ok"}
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/webhooks/stripe")
 async def stripe_webhook(

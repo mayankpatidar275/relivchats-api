@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from uuid import UUID
 import math
@@ -168,6 +169,25 @@ class CreditService:
             query = query.filter(CreditPackage.is_active == True)
         
         return query.order_by(CreditPackage.sort_order).all()
+
+    def get_package(self, package_id: UUID) -> Optional[CreditPackage]:
+        """Sync: get a single credit package by id (used by sync callers)."""
+        pkg = self.db.query(CreditPackage).filter(CreditPackage.id == package_id).first()
+        return pkg
+
+    @classmethod
+    async def get_package_async(cls, db: AsyncSession, package_id: UUID) -> Optional[CreditPackage]:
+        """
+        Async helper to fetch a single CreditPackage using an AsyncSession.
+        Use this from async endpoints/services to avoid blocking the event loop.
+        Example:
+            package = await CreditService.get_package_async(async_db, package_id)
+        """
+        result = await db.execute(
+            select(CreditPackage).where(CreditPackage.id == package_id)
+        )
+        package = result.scalars().first()
+        return package
 
     def unlock_insights_for_category(
         self, 

@@ -79,7 +79,7 @@ class PaymentService:
             coins=coins,
             status=PaymentStatus.PENDING,
             idempotency_key=idempotency_key or str(uuid.uuid4()),
-            metadata={
+            payment_order_metadata={
                 "client_secret": order_response.client_secret,
                 "checkout_url": order_response.checkout_url,
                 **order_response.metadata

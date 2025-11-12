@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import List, Optional
 
-import google.generativeai as genai
+# import google.generativeai as genai
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -13,23 +13,30 @@ from .chunking import chunk_chat_messages, ConversationChunk
 from .qdrant_client import qdrant_store
 from ..chats.models import Chat, Message
 from ..config import settings
+# use new SDK
+from google import genai
+from google.genai import types
 
-# Configure Gemini
-genai.configure(api_key=settings.GEMINI_API_KEY)
+# create a module-level client once (reused)
+_client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
 class VectorService:
     def __init__(self):
         self.embedding_model = settings.GEMINI_EMBEDDING_MODEL
 
     def generate_embedding(self, text: str) -> List[float]:
-        """Generate embedding using Gemini API"""
+        """Generate embedding using Gemini API (google-genai)"""
         try:
-            result = genai.embed_content(
+            # the SDK expects a single or list of contents
+            resp = _client.models.embed_content(
                 model=self.embedding_model,
-                content=text,
-                task_type="semantic_similarity"
+                contents=[text],  # list -> batch of 1
+                # optional config: 
+                config=types.EmbedContentConfig(task_type="semantic_similarity"),
             )
-            return result['embedding']
+            # resp.embeddings is a list; each embedding has `.values`
+            emb = resp.embeddings[0].values
+            return list(emb)
         except Exception as e:
             print(f"Error generating embedding: {e}")
             raise

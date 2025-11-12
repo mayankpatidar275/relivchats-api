@@ -48,7 +48,8 @@ class Settings(BaseSettings):
     # STRIPE_PUBLISHABLE_KEY: str
     # STRIPE_WEBHOOK_SECRET: str
 
-    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8')
+    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra="ignore"  # 👈 allows extra env vars without raising errors
+)
 
 settings = Settings()
 

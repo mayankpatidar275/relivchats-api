@@ -154,12 +154,15 @@ class PaymentService:
             
             # Credit coins to user
             credit_service = CreditService(self.db)
-            await credit_service.add_transaction(
+            await credit_service.add_transaction_async(
+                db=self.db,
                 user_id=payment_order.user_id,
                 transaction_type=TransactionType.PURCHASE,
                 amount=payment_order.coins,
                 description=f"Purchased {payment_order.coins} coins",
-                metadata={
+                payment_id=verification.payment_id,
+                package_id=payment_order.package_id,
+                transaction_metadata={
                     "payment_order_id": str(payment_order.id),
                     "provider_order_id": payment_order.provider_order_id,
                     "provider_payment_id": verification.payment_id,

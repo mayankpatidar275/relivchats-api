@@ -115,7 +115,7 @@ class CreditService:
         description: str,
         payment_id: Optional[str] = None,
         package_id: Optional[UUID] = None,
-        metadata: Optional[dict] = None
+        transaction_metadata: Optional[dict] = None
     ) -> CreditTransaction:
         """Add credits to user balance"""
         user = self.db.query(User).filter(User.user_id == user_id).first()
@@ -133,7 +133,7 @@ class CreditService:
             payment_id=payment_id,
             package_id=package_id,
             status=TransactionStatus.COMPLETED,
-            metadata=metadata
+            transaction_metadata=transaction_metadata
         )
         
         self.db.add(transaction)
@@ -174,6 +174,47 @@ class CreditService:
         """Sync: get a single credit package by id (used by sync callers)."""
         pkg = self.db.query(CreditPackage).filter(CreditPackage.id == package_id).first()
         return pkg
+
+    @classmethod
+    async def add_transaction_async(
+        cls,
+        db: AsyncSession,
+        user_id: str,
+        transaction_type: TransactionType,
+        amount: int,
+        description: str,
+        payment_id: Optional[str] = None,
+        package_id: Optional[UUID] = None, 
+        transaction_metadata: Optional[dict] = None
+    ) -> CreditTransaction:
+        """Async transaction handler for payment service"""
+        result = await db.execute(
+            select(User).where(User.user_id == user_id)
+        )
+        user = result.scalar_one_or_none()
+        
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        user.credit_balance += amount
+        
+        transaction = CreditTransaction(
+            user_id=user_id,
+            type=transaction_type,
+            amount=amount,
+            balance_after=user.credit_balance,
+            description=description,
+            payment_id=payment_id,
+            package_id=package_id,
+            status=TransactionStatus.COMPLETED,
+            transaction_metadata=transaction_metadata or {}
+        )
+        
+        db.add(transaction)
+        await db.commit()
+        await db.refresh(transaction)
+        
+        return transaction
 
     @classmethod
     async def get_package_async(cls, db: AsyncSession, package_id: UUID) -> Optional[CreditPackage]:

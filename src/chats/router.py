@@ -24,6 +24,15 @@ from ..config import settings
 from ..auth.dependencies import get_current_user_id
 from . import schemas, service, models
 
+from ..logging_config import get_logger, log_business_event
+from ..error_handlers import (
+    FileProcessingException,
+    NotFoundException,
+    ErrorCode
+)
+
+logger = get_logger(__name__)
+
 # Configure a directory to temporarily store uploaded files
 UPLOAD_FOLDER = Path("uploads")
 if not UPLOAD_FOLDER.exists():
@@ -44,30 +53,60 @@ def upload_whatsapp_file(
     db: Session = Depends(get_db)
 ):
     """Upload and process WhatsApp chat file synchronously"""
+    
+    logger.info(
+        "Chat upload started",
+        extra={
+            "user_id": user_id,
+            "extra_data": {
+                "filename": file.filename,
+                "content_type": file.content_type,
+                "file_size": file.size,
+                "category_id": category_id
+            }
+        }
+    )
+    
     # 1. File Validation
     allowed_types = ["text/plain", "application/zip"]
     if file.content_type not in allowed_types:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file type. Only .txt or .zip files are allowed."
+        logger.warning(
+            f"Invalid file type rejected: {file.content_type}",
+            extra={"user_id": user_id, "extra_data": {"filename": file.filename}}
         )
-
+        raise FileProcessingException(
+            f"Invalid file type. Only .txt or .zip files are allowed.",
+            error_code=ErrorCode.INVALID_FILE_FORMAT
+        )
+    
     # Add size validation
     if file.size and file.size > settings.MAX_UPLOAD_SIZE_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File too large. Maximum size is {settings.MAX_UPLOAD_SIZE_MB} MB."
+        logger.warning(
+            f"File too large: {file.size} bytes",
+            extra={"user_id": user_id, "extra_data": {"filename": file.filename}}
         )
-
+        raise FileProcessingException(
+            f"File too large. Maximum size is {settings.MAX_UPLOAD_SIZE_MB} MB.",
+            error_code=ErrorCode.FILE_TOO_LARGE
+        )
+    
     # 2. Save the file to a temporary location
     file_path = None
     try:
         file_path = UPLOAD_FOLDER / file.filename
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+        
+        logger.debug(f"File saved to temporary location: {file_path}", extra={"user_id": user_id})
+    
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
-
+        logger.error(
+            f"Failed to save uploaded file: {e}",
+            extra={"user_id": user_id, "extra_data": {"filename": file.filename}},
+            exc_info=True
+        )
+        raise FileProcessingException(f"Failed to save file: {str(e)}")
+    
     try:
         # 3. Create a chat entry in the database with 'processing' status
         db_chat = service.create_chat(
@@ -77,6 +116,11 @@ def upload_whatsapp_file(
             category_id=category_id  # Pass optional category
         )
         
+        logger.info(
+            f"Chat record created: {db_chat.id}",
+            extra={"user_id": user_id, "extra_data": {"chat_id": str(db_chat.id)}}
+        )
+        
         # 4. Process the file synchronously
         processed_chat = service.process_whatsapp_file(
             chat_id=db_chat.id,
@@ -84,24 +128,70 @@ def upload_whatsapp_file(
             db=db
         )
         
-        # 5. Return the completed chat with all metadata
+        # Log successful processing as business event
+        log_business_event(
+            event_type="chat_uploaded",
+            user_id=user_id,
+            chat_id=str(processed_chat.id),
+            filename=file.filename,
+            message_count=processed_chat.chat_metadata.get("total_messages", 0) if processed_chat.chat_metadata else 0,
+            participant_count=processed_chat.participant_count,
+            processing_time_ms=0  # You can track this if needed
+        )
+        
+        logger.info(
+            f"Chat processed successfully: {processed_chat.id}",
+            extra={
+                "user_id": user_id,
+                "extra_data": {
+                    "chat_id": str(processed_chat.id),
+                    "message_count": processed_chat.chat_metadata.get("total_messages", 0) if processed_chat.chat_metadata else 0
+                }
+            }
+        )
+        
+        # 5. Return the completed chat
         return schemas.ChatUploadResponse.from_orm(processed_chat)
          
+    except FileProcessingException:
+        # Re-raise our custom exceptions
+        raise
+    
     except Exception as e:
-        # Handle any processing errors
+        logger.error(
+            f"Chat processing failed: {e}",
+            extra={
+                "user_id": user_id,
+                "extra_data": {
+                    "filename": file.filename,
+                    "chat_id": str(db_chat.id) if 'db_chat' in locals() else None
+                }
+            },
+            exc_info=True
+        )
+        
         # Clean up the chat if it was created
         if 'db_chat' in locals():
-            service.delete_chat(db, db_chat.id)
-        raise HTTPException(status_code=500, detail=f"Failed to process file: {e}")
+            try:
+                service.delete_chat(db, db_chat.id)
+                logger.info(f"Cleaned up failed chat: {db_chat.id}", extra={"user_id": user_id})
+            except Exception as cleanup_error:
+                logger.error(f"Failed to cleanup chat: {cleanup_error}", exc_info=True)
+        
+        raise FileProcessingException(f"Failed to process file: {str(e)}")
         
     finally:
         # 6. Clean up the temporary file
         if file_path and file_path.exists():
             try:
                 file_path.unlink()
+                logger.debug(f"Temporary file deleted: {file_path}", extra={"user_id": user_id})
             except Exception as cleanup_error:
-                # Log the cleanup error but don't fail the request
-                print(f"Warning: Failed to clean up temp file {file_path}: {cleanup_error}")
+                logger.warning(
+                    f"Failed to clean up temp file {file_path}: {cleanup_error}",
+                    extra={"user_id": user_id}
+                )
+
 
 
 # ============================================================================
@@ -260,46 +350,46 @@ def soft_delete_chat(
 # AI CONVERSATION (LEGACY - CONSIDER MOVING TO /rag)
 # ============================================================================
 
-@router.get("/{chat_id}/ai-conversation", response_model=schemas.AIConversationResponse)
-def get_chat_ai_conversation_endpoint(
-    chat_id: UUID,
-    db: Session = Depends(get_db),
-    user_id = Depends(get_current_user_id)
-):
-    """Get AI conversation history for a chat"""
+# @router.get("/{chat_id}/ai-conversation", response_model=schemas.AIConversationResponse)
+# def get_chat_ai_conversation_endpoint(
+#     chat_id: UUID,
+#     db: Session = Depends(get_db),
+#     user_id = Depends(get_current_user_id)
+# ):
+#     """Get AI conversation history for a chat"""
     
-    # Verify user owns the chat
-    chat = service.get_chat_by_id(db, chat_id)
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
+#     # Verify user owns the chat
+#     chat = service.get_chat_by_id(db, chat_id)
+#     if not chat:
+#         raise HTTPException(status_code=404, detail="Chat not found")
     
-    if str(chat.user_id) != str(user_id):
-        raise HTTPException(status_code=403, detail="Not authorized to access this chat")
+#     if str(chat.user_id) != str(user_id):
+#         raise HTTPException(status_code=403, detail="Not authorized to access this chat")
     
-    # Get conversation
-    conversation = service.get_chat_ai_conversation(db, chat_id, str(user_id))
+#     # Get conversation
+#     conversation = service.get_chat_ai_conversation(db, chat_id, str(user_id))
     
-    if not conversation:
-        raise HTTPException(status_code=404, detail="No AI conversation found for this chat")
+#     if not conversation:
+#         raise HTTPException(status_code=404, detail="No AI conversation found for this chat")
     
-    # Sort messages chronologically
-    sorted_messages = sorted(conversation.messages, key=lambda x: x.created_at)
+#     # Sort messages chronologically
+#     sorted_messages = sorted(conversation.messages, key=lambda x: x.created_at)
     
-    return schemas.AIConversationResponse(
-        id=str(conversation.id),
-        chat_id=str(conversation.chat_id),
-        created_at=conversation.created_at,
-        updated_at=conversation.updated_at,
-        messages=[
-            schemas.AIMessageResponse(
-                id=str(msg.id),
-                message_type=msg.message_type.value,
-                content=msg.content,
-                created_at=msg.created_at
-            )
-            for msg in sorted_messages
-        ]
-    )
+#     return schemas.AIConversationResponse(
+#         id=str(conversation.id),
+#         chat_id=str(conversation.chat_id),
+#         created_at=conversation.created_at,
+#         updated_at=conversation.updated_at,
+#         messages=[
+#             schemas.AIMessageResponse(
+#                 id=str(msg.id),
+#                 message_type=msg.message_type.value,
+#                 content=msg.content,
+#                 created_at=msg.created_at
+#             )
+#             for msg in sorted_messages
+#         ]
+#     )
 
 
 # ============================================================================
@@ -324,6 +414,13 @@ def get_public_chat_stats(
         "chat_metadata": chat.chat_metadata,
         "created_at": chat.created_at,
     }
+
+
+
+
+
+
+
 
 
 # @router.delete("/{chat_id}", status_code=204)
@@ -378,6 +475,11 @@ def get_public_chat_stats(
             
 #     except Exception as e:
 #         raise HTTPException(status_code=500, detail=f"Reindexing failed: {str(e)}")
+
+
+
+
+
 
 
 

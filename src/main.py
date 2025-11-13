@@ -1,6 +1,15 @@
+# src/main.py 
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 
+from .config import settings
+from .logging_config import setup_logging, get_logger
+from .error_handlers import register_exception_handlers
+from .middleware import register_middleware
+
+# Import routers
 from .users.router import router as users_router  
 from .chats.router import router as chats_router
 from .rag.router import router as rag_router
@@ -9,16 +18,115 @@ from .credits.router import router as credit_router
 from .insights.router import router as insights_router
 from .payments.router import router as payment_router
 
+# Initialize logger (will be configured during startup)
+logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for startup and shutdown events
+    """
+    # ========================================================================
+    # STARTUP
+    # ========================================================================
+    logger.info("="*80)
+    logger.info("Starting RelivChats API")
+    logger.info("="*80)
+    
+    # Log configuration
+    logger.info(
+        "Application configuration",
+        extra={
+            "extra_data": {
+                "environment": settings.ENVIRONMENT,
+                "log_level": settings.LOG_LEVEL,
+                "database": settings.DATABASE_URL.split("@")[-1] if settings.DATABASE_URL else "Not configured",
+                "redis": settings.REDIS_URL.split("@")[-1] if settings.REDIS_URL else "Not configured",
+                "celery_broker": settings.CELERY_BROKER_URL.split("@")[-1] if settings.CELERY_BROKER_URL else "Not configured"
+            }
+        }
+    )
+    
+    # Test database connection
+    try:
+        from .database import SessionLocal
+        db = SessionLocal()
+        db.execute("SELECT 1")
+        db.close()
+        logger.info("✓ Database connection successful")
+    except Exception as e:
+        logger.error(f"✗ Database connection failed: {e}", exc_info=True)
+        raise
+    
+    # Test Redis connection
+    try:
+        import redis
+        redis_client = redis.from_url(settings.REDIS_URL)
+        redis_client.ping()
+        logger.info("✓ Redis connection successful")
+    except Exception as e:
+        logger.warning(f"⚠ Redis connection failed: {e}")
+    
+    # Initialize Sentry (if configured)
+    # if settings.SENTRY_DSN:
+    #     try:
+    #         import sentry_sdk
+    #         from sentry_sdk.integrations.fastapi import FastApiIntegration
+    #         from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+            
+    #         sentry_sdk.init(
+    #             dsn=settings.SENTRY_DSN,
+    #             environment=settings.ENVIRONMENT,
+    #             traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+    #             integrations=[
+    #                 FastApiIntegration(),
+    #                 SqlalchemyIntegration(),
+    #             ],
+    #         )
+    #         logger.info("✓ Sentry error tracking initialized")
+    #     except Exception as e:
+    #         logger.warning(f"⚠ Sentry initialization failed: {e}")
+    
+    logger.info("="*80)
+    logger.info("🚀 RelivChats API is ready to accept requests")
+    logger.info("="*80)
+    
+    yield
+    
+    # ========================================================================
+    # SHUTDOWN
+    # ========================================================================
+    logger.info("="*80)
+    logger.info("Shutting down RelivChats API")
+    logger.info("="*80)
+
+
+# ============================================================================
+# CREATE FASTAPI APP
+# ============================================================================
+
+# Setup logging BEFORE creating the app
+setup_logging()
+
 app = FastAPI(
     title="RelivChats API",
-    description="API for processing and analyzing WhatsApp chats with AI",
-    version="1.0.0"
+    description="WhatsApp Chat Analysis & Insights Platform",
+    version="1.0.0",
+    lifespan=lifespan,
+    # Disable default exception handlers - we'll use custom ones
+    exception_handlers={}
 )
+
+# ============================================================================
+# REGISTER MIDDLEWARE (ORDER MATTERS!)
+# ============================================================================
+register_middleware(app)
 
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure for production
+    allow_origins=settings.CORS_ORIGINS if hasattr(settings, 'CORS_ORIGINS') else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,9 +143,11 @@ app.include_router(payment_router, prefix='/api')
 
 
 @app.get("/")
-def read_root():
+async def root():
+    """Root endpoint"""
     return {
-        "message": "RelivChats API is running!",
+        "message": "RelivChats API",
+        "version": "1.0.0",
         "docs": "/docs"
     }
 

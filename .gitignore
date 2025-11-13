@@ -210,3 +210,7 @@ __marimo__/
 uploads/
 
 temp-data/
+
+logs/*.log
+  logs/*.log.*
+  *.py.backup

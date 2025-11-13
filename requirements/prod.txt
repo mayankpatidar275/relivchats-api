@@ -28,3 +28,20 @@ stripe==7.9.0
 
 asyncpg
 greenlet
+
+
+# Add these to requirements/base.txt or create requirements/logging.txt
+
+# Logging and monitoring
+python-json-logger==2.0.7  # Structured JSON logging
+# sentry-sdk[fastapi]==1.40.0  # Error tracking and monitoring (optional)
+
+# For production monitoring (optional - choose based on your needs)
+# prometheus-client==0.19.0  # Prometheus metrics export
+# datadog==0.48.0  # Datadog APM integration
+# opentelemetry-api==1.21.0  # OpenTelemetry tracing
+# opentelemetry-sdk==1.21.0
+# opentelemetry-instrumentation-fastapi==0.42b0
+
+# Note: The logging system works without external dependencies
+# but adding these enables advanced monitoring features

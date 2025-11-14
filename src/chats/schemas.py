@@ -95,6 +95,7 @@ class GetChatResponse(BaseModel):
     category_slug: Optional[str] = None
     category_name: Optional[str] = None
     created_at: datetime
+    platform: str
     status: str
     insights_unlocked: bool  # NEW - check if any insights exist
     vector_status: str = "pending"
@@ -144,6 +145,7 @@ class GetChatResponse(BaseModel):
             category_name=category_name,
             insights_unlocked=insights_unlocked,
             created_at=db_chat.created_at,
+            platform=db_chat.platform,
             status=db_chat.status,
             vector_status=getattr(db_chat, 'vector_status', 'pending'),
             chunk_count=getattr(db_chat, 'chunk_count', 0),

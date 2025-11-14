@@ -22,14 +22,16 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..config import settings
 from ..auth.dependencies import get_current_user_id
-from . import schemas, service, models
-
 from ..logging_config import get_logger, log_business_event
 from ..error_handlers import (
-    FileProcessingException,
     NotFoundException,
+    ForbiddenException,
+    FileProcessingException,
+    DatabaseException,
     ErrorCode
 )
+from ..monitoring import track_time, track_operation
+from . import schemas, service, models
 
 logger = get_logger(__name__)
 
@@ -55,13 +57,13 @@ def upload_whatsapp_file(
     """Upload and process WhatsApp chat file synchronously"""
     
     logger.info(
-        "Chat upload started",
+        "Chat upload initiated",
         extra={
             "user_id": user_id,
             "extra_data": {
                 "filename": file.filename,
                 "content_type": file.content_type,
-                "file_size": file.size,
+                "file_size_bytes": file.size,
                 "category_id": category_id
             }
         }
@@ -72,53 +74,84 @@ def upload_whatsapp_file(
     if file.content_type not in allowed_types:
         logger.warning(
             f"Invalid file type rejected: {file.content_type}",
-            extra={"user_id": user_id, "extra_data": {"filename": file.filename}}
+            extra={
+                "user_id": user_id,
+                "extra_data": {
+                    "filename": file.filename,
+                    "content_type": file.content_type,
+                    "allowed_types": allowed_types
+                }
+            }
         )
         raise FileProcessingException(
             f"Invalid file type. Only .txt or .zip files are allowed.",
             error_code=ErrorCode.INVALID_FILE_FORMAT
         )
-    
+
     # Add size validation
     if file.size and file.size > settings.MAX_UPLOAD_SIZE_BYTES:
         logger.warning(
-            f"File too large: {file.size} bytes",
-            extra={"user_id": user_id, "extra_data": {"filename": file.filename}}
+            f"File size exceeds limit: {file.size} bytes",
+            extra={
+                "user_id": user_id,
+                "extra_data": {
+                    "filename": file.filename,
+                    "file_size_bytes": file.size,
+                    "max_size_bytes": settings.MAX_UPLOAD_SIZE_BYTES
+                }
+            }
         )
         raise FileProcessingException(
             f"File too large. Maximum size is {settings.MAX_UPLOAD_SIZE_MB} MB.",
             error_code=ErrorCode.FILE_TOO_LARGE
         )
-    
+
     # 2. Save the file to a temporary location
     file_path = None
     try:
         file_path = UPLOAD_FOLDER / file.filename
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
         
-        logger.debug(f"File saved to temporary location: {file_path}", extra={"user_id": user_id})
+        with track_operation("save_uploaded_file", filename=file.filename):
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+        
+        logger.debug(
+            f"File saved to temporary location: {file_path}",
+            extra={"user_id": user_id, "extra_data": {"file_path": str(file_path)}}
+        )
     
     except Exception as e:
         logger.error(
             f"Failed to save uploaded file: {e}",
-            extra={"user_id": user_id, "extra_data": {"filename": file.filename}},
+            extra={
+                "user_id": user_id,
+                "extra_data": {
+                    "filename": file.filename,
+                    "error_type": type(e).__name__
+                }
+            },
             exc_info=True
         )
         raise FileProcessingException(f"Failed to save file: {str(e)}")
-    
+
     try:
         # 3. Create a chat entry in the database with 'processing' status
         db_chat = service.create_chat(
             db, 
             user_id=user_id, 
             filename=file.filename,
-            category_id=category_id  # Pass optional category
+            category_id=category_id
         )
         
         logger.info(
-            f"Chat record created: {db_chat.id}",
-            extra={"user_id": user_id, "extra_data": {"chat_id": str(db_chat.id)}}
+            f"Chat record created with ID: {db_chat.id}",
+            extra={
+                "user_id": user_id,
+                "extra_data": {
+                    "chat_id": str(db_chat.id),
+                    "status": db_chat.status
+                }
+            }
         )
         
         # 4. Process the file synchronously
@@ -128,15 +161,16 @@ def upload_whatsapp_file(
             db=db
         )
         
-        # Log successful processing as business event
+        # 5. Log successful processing as business event
         log_business_event(
             event_type="chat_uploaded",
             user_id=user_id,
             chat_id=str(processed_chat.id),
             filename=file.filename,
+            file_size_bytes=file.size,
             message_count=processed_chat.chat_metadata.get("total_messages", 0) if processed_chat.chat_metadata else 0,
             participant_count=processed_chat.participant_count,
-            processing_time_ms=0  # You can track this if needed
+            is_group_chat=processed_chat.is_group_chat
         )
         
         logger.info(
@@ -145,26 +179,28 @@ def upload_whatsapp_file(
                 "user_id": user_id,
                 "extra_data": {
                     "chat_id": str(processed_chat.id),
-                    "message_count": processed_chat.chat_metadata.get("total_messages", 0) if processed_chat.chat_metadata else 0
+                    "message_count": processed_chat.chat_metadata.get("total_messages", 0) if processed_chat.chat_metadata else 0,
+                    "participant_count": processed_chat.participant_count
                 }
             }
         )
         
-        # 5. Return the completed chat
+        # 6. Return the completed chat with all metadata
         return schemas.ChatUploadResponse.from_orm(processed_chat)
          
     except FileProcessingException:
-        # Re-raise our custom exceptions
+        # Re-raise our custom exceptions (already logged in service)
         raise
     
     except Exception as e:
         logger.error(
-            f"Chat processing failed: {e}",
+            f"Unexpected error during chat processing: {e}",
             extra={
                 "user_id": user_id,
                 "extra_data": {
                     "filename": file.filename,
-                    "chat_id": str(db_chat.id) if 'db_chat' in locals() else None
+                    "chat_id": str(db_chat.id) if 'db_chat' in locals() else None,
+                    "error_type": type(e).__name__
                 }
             },
             exc_info=True
@@ -174,24 +210,33 @@ def upload_whatsapp_file(
         if 'db_chat' in locals():
             try:
                 service.delete_chat(db, db_chat.id)
-                logger.info(f"Cleaned up failed chat: {db_chat.id}", extra={"user_id": user_id})
+                logger.info(
+                    f"Cleaned up failed chat: {db_chat.id}",
+                    extra={"user_id": user_id}
+                )
             except Exception as cleanup_error:
-                logger.error(f"Failed to cleanup chat: {cleanup_error}", exc_info=True)
+                logger.error(
+                    f"Failed to cleanup chat after error: {cleanup_error}",
+                    extra={"user_id": user_id},
+                    exc_info=True
+                )
         
         raise FileProcessingException(f"Failed to process file: {str(e)}")
         
     finally:
-        # 6. Clean up the temporary file
+        # 7. Clean up the temporary file
         if file_path and file_path.exists():
             try:
                 file_path.unlink()
-                logger.debug(f"Temporary file deleted: {file_path}", extra={"user_id": user_id})
+                logger.debug(
+                    f"Temporary file deleted: {file_path}",
+                    extra={"user_id": user_id}
+                )
             except Exception as cleanup_error:
                 logger.warning(
                     f"Failed to clean up temp file {file_path}: {cleanup_error}",
                     extra={"user_id": user_id}
                 )
-
 
 
 # ============================================================================
@@ -204,18 +249,59 @@ def list_user_chats(
     db: Session = Depends(get_db)
 ):
     """Get all chats for the current user"""
-    chats = service.get_user_chats(db, user_id)
-
-    # Convert DB chat objects to schema using the classmethod
-    response = []
-    for chat in chats:
-        try:
-            response.append(schemas.GetChatResponse.from_orm(chat))
-        except Exception:
-            # If conversion fails for any chat, skip it so endpoint still returns others
-            continue
-
-    return response
+    
+    logger.debug(
+        "Fetching user chats",
+        extra={"user_id": user_id}
+    )
+    
+    try:
+        chats = service.get_user_chats(db, user_id)
+        
+        # Convert DB chat objects to schema using the classmethod
+        response = []
+        failed_conversions = 0
+        
+        for chat in chats:
+            try:
+                response.append(schemas.GetChatResponse.from_orm(chat))
+            except Exception as e:
+                failed_conversions += 1
+                logger.warning(
+                    f"Failed to convert chat to response schema: {e}",
+                    extra={
+                        "user_id": user_id,
+                        "extra_data": {
+                            "chat_id": str(chat.id),
+                            "error_type": type(e).__name__
+                        }
+                    }
+                )
+                # Skip this chat so endpoint still returns others
+                continue
+        
+        logger.info(
+            f"Retrieved {len(response)} chats for user",
+            extra={
+                "user_id": user_id,
+                "extra_data": {
+                    "chat_count": len(response),
+                    "failed_conversions": failed_conversions
+                }
+            }
+        )
+        
+        return response
+    
+    except DatabaseException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to list user chats: {e}",
+            extra={"user_id": user_id},
+            exc_info=True
+        )
+        raise DatabaseException(f"Failed to retrieve chats", original_error=e)
 
 
 # ============================================================================
@@ -229,15 +315,57 @@ def get_chat_details(
     db: Session = Depends(get_db)
 ):
     """Get detailed information about a specific chat"""
-    chat = service.get_chat_by_id(db, chat_id)
     
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
+    logger.debug(
+        "Fetching chat details",
+        extra={
+            "user_id": user_id,
+            "extra_data": {"chat_id": str(chat_id)}
+        }
+    )
     
-    if chat.user_id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to access this chat")
+    try:
+        chat = service.get_chat_by_id(db, chat_id)
+        
+        if not chat:
+            logger.warning(
+                f"Chat not found: {chat_id}",
+                extra={"user_id": user_id}
+            )
+            raise NotFoundException("Chat", str(chat_id))
+        
+        if chat.user_id != user_id:
+            logger.warning(
+                f"Unauthorized access attempt to chat: {chat_id}",
+                extra={
+                    "user_id": user_id,
+                    "extra_data": {
+                        "chat_id": str(chat_id),
+                        "chat_owner": chat.user_id
+                    }
+                }
+            )
+            raise ForbiddenException("Not authorized to access this chat")
+        
+        logger.debug(
+            f"Chat details retrieved: {chat_id}",
+            extra={"user_id": user_id}
+        )
+        
+        return schemas.GetChatResponse.from_orm(chat)
     
-    return schemas.GetChatResponse.from_orm(chat)
+    except (NotFoundException, ForbiddenException):
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to get chat details: {e}",
+            extra={
+                "user_id": user_id,
+                "extra_data": {"chat_id": str(chat_id)}
+            },
+            exc_info=True
+        )
+        raise DatabaseException(f"Failed to retrieve chat", original_error=e)
 
 
 # ============================================================================
@@ -252,17 +380,49 @@ def update_user_display_name(
     db: Session = Depends(get_db)
 ):
     """Update user's display name for a chat"""
-    chat = service.update_user_display_name(
-        db, chat_id, user_id, request.user_display_name
+    
+    logger.info(
+        "Updating user display name",
+        extra={
+            "user_id": user_id,
+            "extra_data": {
+                "chat_id": chat_id,
+                "new_display_name": request.user_display_name
+            }
+        }
     )
     
-    if not chat:
-        raise HTTPException(
-            status_code=404, 
-            detail="Chat not found or not authorized"
+    try:
+        chat = service.update_user_display_name(
+            db, chat_id, user_id, request.user_display_name
         )
+        
+        if not chat:
+            logger.warning(
+                f"Chat not found or unauthorized: {chat_id}",
+                extra={"user_id": user_id}
+            )
+            raise NotFoundException("Chat", chat_id)
+        
+        logger.info(
+            f"Display name updated for chat: {chat_id}",
+            extra={"user_id": user_id}
+        )
+        
+        return schemas.ChatUploadResponse.from_orm(chat)
     
-    return schemas.ChatUploadResponse.from_orm(chat)
+    except NotFoundException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to update display name: {e}",
+            extra={
+                "user_id": user_id,
+                "extra_data": {"chat_id": chat_id}
+            },
+            exc_info=True
+        )
+        raise DatabaseException(f"Failed to update display name", original_error=e)
 
 
 # ============================================================================
@@ -276,8 +436,50 @@ def get_chat_messages(
     db: Session = Depends(get_db)
 ):
     """Get all messages for a chat"""
-    messages = service.get_chat_messages(db, chat_id, user_id)
-    return messages
+    
+    logger.debug(
+        "Fetching chat messages",
+        extra={
+            "user_id": user_id,
+            "extra_data": {"chat_id": str(chat_id)}
+        }
+    )
+    
+    try:
+        messages = service.get_chat_messages(db, chat_id, user_id)
+        
+        logger.info(
+            f"Retrieved {len(messages)} messages",
+            extra={
+                "user_id": user_id,
+                "extra_data": {
+                    "chat_id": str(chat_id),
+                    "message_count": len(messages)
+                }
+            }
+        )
+        
+        return messages
+    
+    except HTTPException as e:
+        # get_chat_messages raises HTTPException for forbidden access
+        if e.status_code == 403:
+            logger.warning(
+                f"Unauthorized access to chat messages: {chat_id}",
+                extra={"user_id": user_id}
+            )
+            raise ForbiddenException("You do not have access to this chat")
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to retrieve messages: {e}",
+            extra={
+                "user_id": user_id,
+                "extra_data": {"chat_id": str(chat_id)}
+            },
+            exc_info=True
+        )
+        raise DatabaseException(f"Failed to retrieve messages", original_error=e)
 
 
 # ============================================================================
@@ -291,21 +493,65 @@ def get_chat_vector_status(
     db: Session = Depends(get_db)
 ):
     """Get vector indexing status for a chat"""
-    chat = service.get_chat_by_id(db, chat_id)
     
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    
-    if chat.user_id != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to access this chat")
-    
-    return schemas.VectorStatusResponse(
-        chat_id=chat.id,
-        vector_status=getattr(chat, 'vector_status', 'pending'),
-        chunk_count=getattr(chat, 'chunk_count', 0),
-        indexed_at=getattr(chat, 'indexed_at', None),
-        is_searchable=getattr(chat, 'vector_status', 'pending') == 'completed'
+    logger.debug(
+        "Checking vector status",
+        extra={
+            "user_id": user_id,
+            "extra_data": {"chat_id": chat_id}
+        }
     )
+    
+    try:
+        chat = service.get_chat_by_id(db, chat_id)
+        
+        if not chat:
+            logger.warning(
+                f"Chat not found for vector status check: {chat_id}",
+                extra={"user_id": user_id}
+            )
+            raise NotFoundException("Chat", chat_id)
+        
+        if chat.user_id != user_id:
+            logger.warning(
+                f"Unauthorized vector status check: {chat_id}",
+                extra={"user_id": user_id}
+            )
+            raise ForbiddenException("Not authorized to access this chat")
+        
+        vector_status = getattr(chat, 'vector_status', 'pending')
+        
+        logger.debug(
+            f"Vector status: {vector_status}",
+            extra={
+                "user_id": user_id,
+                "extra_data": {
+                    "chat_id": chat_id,
+                    "vector_status": vector_status
+                }
+            }
+        )
+        
+        return schemas.VectorStatusResponse(
+            chat_id=chat.id,
+            vector_status=vector_status,
+            chunk_count=getattr(chat, 'chunk_count', 0),
+            indexed_at=getattr(chat, 'indexed_at', None),
+            is_searchable=vector_status == 'completed'
+        )
+    
+    except (NotFoundException, ForbiddenException):
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to check vector status: {e}",
+            extra={
+                "user_id": user_id,
+                "extra_data": {"chat_id": chat_id}
+            },
+            exc_info=True
+        )
+        raise DatabaseException(f"Failed to check vector status", original_error=e)
 
 
 # ============================================================================
@@ -322,28 +568,179 @@ def soft_delete_chat(
     """
     Soft delete chat and schedule permanent cleanup
     """
+    
+    logger.info(
+        "Chat deletion requested",
+        extra={
+            "user_id": user_id,
+            "extra_data": {"chat_id": str(chat_id)}
+        }
+    )
 
-    # Check if chat exists
-    chat = service.get_chat_by_id(db, chat_id)
-    if not chat:
-        raise HTTPException(
-            status_code=404, 
-            detail="Chat not found"
+    try:
+        # Check if chat exists
+        chat = service.get_chat_by_id(db, chat_id)
+        if not chat:
+            logger.warning(
+                f"Delete attempt on non-existent chat: {chat_id}",
+                extra={"user_id": user_id}
+            )
+            raise NotFoundException("Chat", str(chat_id))
+        
+        # Verify ownership
+        if chat.user_id != user_id:
+            logger.warning(
+                f"Unauthorized delete attempt: {chat_id}",
+                extra={
+                    "user_id": user_id,
+                    "extra_data": {
+                        "chat_id": str(chat_id),
+                        "chat_owner": chat.user_id
+                    }
+                }
+            )
+            raise ForbiddenException("Not authorized to delete this chat")
+        
+        # Soft delete chat and related data
+        deleted_chat = service.soft_delete_chat(db, chat.id)
+        if not deleted_chat:
+            logger.error(
+                f"Soft delete operation failed: {chat_id}",
+                extra={"user_id": user_id}
+            )
+            raise DatabaseException("Failed to delete chat")
+
+        # Schedule permanent cleanup in background
+        background_tasks.add_task(service.delete_chat, db, chat.id)
+        
+        # Log business event
+        log_business_event(
+            event_type="chat_deleted",
+            user_id=user_id,
+            chat_id=str(chat_id),
+            message_count=chat.chat_metadata.get("total_messages", 0) if chat.chat_metadata else 0
+        )
+        
+        logger.info(
+            f"Chat soft deleted successfully: {chat_id}",
+            extra={
+                "user_id": user_id,
+                "extra_data": {
+                    "chat_id": str(chat_id),
+                    "scheduled_permanent_deletion": True
+                }
+            }
+        )
+        
+        return schemas.ChatDeleteResponse(
+            success=True,
+            message="Chat successfully deleted",
+            chat_id=chat_id
         )
     
-    # Soft delete chat and related data
-    deleted_chat = service.soft_delete_chat(db, chat.id)
-    if not deleted_chat:
-        raise HTTPException(status_code=500, detail="Failed to delete chat")
+    except (NotFoundException, ForbiddenException, DatabaseException):
+        raise
+    except Exception as e:
+        logger.error(
+            f"Unexpected error during chat deletion: {e}",
+            extra={
+                "user_id": user_id,
+                "extra_data": {"chat_id": str(chat_id)}
+            },
+            exc_info=True
+        )
+        raise DatabaseException(f"Failed to delete chat", original_error=e)
 
-    # Schedule permanent cleanup in background
-    background_tasks.add_task(service.delete_chat, db, chat.id)
+
+# ============================================================================
+# AI CONVERSATION (LEGACY - CONSIDER MOVING TO /rag)
+# ============================================================================
+
+@router.get("/{chat_id}/ai-conversation", response_model=schemas.AIConversationResponse)
+def get_chat_ai_conversation_endpoint(
+    chat_id: UUID,
+    db: Session = Depends(get_db),
+    user_id = Depends(get_current_user_id)
+):
+    """Get AI conversation history for a chat"""
     
-    return schemas.ChatDeleteResponse(
-        success=True,
-        message="Chat successfully deleted",
-        chat_id=chat_id
+    logger.debug(
+        "Fetching AI conversation",
+        extra={
+            "user_id": user_id,
+            "extra_data": {"chat_id": str(chat_id)}
+        }
     )
+    
+    try:
+        # Verify user owns the chat
+        chat = service.get_chat_by_id(db, chat_id)
+        if not chat:
+            logger.warning(
+                f"Chat not found for AI conversation: {chat_id}",
+                extra={"user_id": user_id}
+            )
+            raise NotFoundException("Chat", str(chat_id))
+        
+        if str(chat.user_id) != str(user_id):
+            logger.warning(
+                f"Unauthorized AI conversation access: {chat_id}",
+                extra={"user_id": user_id}
+            )
+            raise ForbiddenException("Not authorized to access this chat")
+        
+        # Get conversation
+        conversation = service.get_chat_ai_conversation(db, chat_id, str(user_id))
+        
+        if not conversation:
+            logger.info(
+                f"No AI conversation found for chat: {chat_id}",
+                extra={"user_id": user_id}
+            )
+            raise NotFoundException("AI conversation", str(chat_id))
+        
+        # Sort messages chronologically
+        sorted_messages = sorted(conversation.messages, key=lambda x: x.created_at)
+        
+        logger.debug(
+            f"AI conversation retrieved with {len(sorted_messages)} messages",
+            extra={
+                "user_id": user_id,
+                "extra_data": {
+                    "chat_id": str(chat_id),
+                    "message_count": len(sorted_messages)
+                }
+            }
+        )
+        
+        return schemas.AIConversationResponse(
+            id=str(conversation.id),
+            chat_id=str(conversation.chat_id),
+            created_at=conversation.created_at,
+            updated_at=conversation.updated_at,
+            messages=[
+                schemas.AIMessageResponse(
+                    id=str(msg.id),
+                    message_type=msg.message_type.value,
+                    content=msg.content,
+                    created_at=msg.created_at
+                )
+                for msg in sorted_messages
+            ]
+        )
+    
+    except (NotFoundException, ForbiddenException):
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to retrieve AI conversation: {e}",
+            extra={
+                "user_id": user_id,
+                "extra_data": {"chat_id": str(chat_id)}
+            },
+            exc_info=True
+        )
+        raise DatabaseException(f"Failed to retrieve AI conversation", original_error=e)
 
 
 # ============================================================================
@@ -356,19 +753,41 @@ def get_public_chat_stats(
     db: Session = Depends(get_db)
 ):
     """Get public chat statistics (no auth required)"""
-    chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
     
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
+    logger.debug(
+        "Fetching public chat stats",
+        extra={"extra_data": {"chat_id": str(chat_id)}}
+    )
     
-    return {
-        "id": str(chat.id),
-        "filename": chat.title,
-        "participants": json.loads(chat.participants) if chat.participants else [],
-        "chat_metadata": chat.chat_metadata,
-        "created_at": chat.created_at,
-    }
-
+    try:
+        chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
+        
+        if not chat:
+            logger.warning(f"Public stats requested for non-existent chat: {chat_id}")
+            raise NotFoundException("Chat", str(chat_id))
+        
+        logger.debug(
+            f"Public stats retrieved for chat: {chat_id}",
+            extra={"extra_data": {"chat_id": str(chat_id)}}
+        )
+        
+        return {
+            "id": str(chat.id),
+            "filename": chat.title,
+            "participants": json.loads(chat.participants) if chat.participants else [],
+            "chat_metadata": chat.chat_metadata,
+            "created_at": chat.created_at,
+        }
+    
+    except NotFoundException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to retrieve public stats: {e}",
+            extra={"extra_data": {"chat_id": str(chat_id)}},
+            exc_info=True
+        )
+        raise DatabaseException(f"Failed to retrieve public stats", original_error=e)
 
 
 # ============================================================================

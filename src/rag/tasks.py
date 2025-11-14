@@ -16,7 +16,11 @@ from .generation_service import InsightGenerationOrchestrator
 from .service import generate_insight_with_context
 from .models import Insight, InsightGenerationJob, InsightStatus
 
-logger = logging.getLogger(__name__)
+from ..logging_config import get_logger
+
+logger = get_logger(__name__)
+
+loggerOld = logging.getLogger(__name__)
 
 REDIS_URL = settings.REDIS_URL
 # decode_responses=True so we get Python str from redis_client.get
@@ -44,10 +48,10 @@ def orchestrate_insight_generation(self, job_id: str):
         
         # Mark job as started
         orchestrator.start_job(job_id)
-        logger.info(f"Starting insight generation job: {job_id}")
+        loggerOld.info(f"Starting insight generation job: {job_id}")
         
         # Step 1: Extract shared context (expensive operation, do once)
-        logger.info(f"Extracting shared RAG context for job {job_id}")
+        loggerOld.info(f"Extracting shared RAG context for job {job_id}")
         context = orchestrator.extract_shared_context(job_id)
         
         # Make context JSON-serializable (convert objects -> primitives).
@@ -105,7 +109,7 @@ def orchestrate_insight_generation(self, job_id: str):
         try:
             _redis_client.set(context_key, json.dumps(serializable_context), ex=600)
         except Exception as e:
-            logger.warning(f"Failed to write shared context to Redis (continuing): {e}")
+            loggerOld.warning(f"Failed to write shared context to Redis (continuing): {e}")
             # fallback: keep context in-memory but we won't pass the object to Celery tasks
             context_key = None
         
@@ -119,7 +123,7 @@ def orchestrate_insight_generation(self, job_id: str):
         ).all()
         
         if not insights:
-            logger.warning(f"No pending insights found for job {job_id}")
+            loggerOld.warning(f"No pending insights found for job {job_id}")
             job.status = "failed"
             job.error_message = "No pending insights to generate"
             db.commit()
@@ -146,10 +150,10 @@ def orchestrate_insight_generation(self, job_id: str):
             finalize_generation_job.s(job_id)
         )
         
-        logger.info(f"Launched {len(task_signatures)} parallel insight generation tasks")
+        loggerOld.info(f"Launched {len(task_signatures)} parallel insight generation tasks")
         
     except Exception as e:
-        logger.error(f"Orchestration failed for job {job_id}: {e}", exc_info=True)
+        loggerOld.error(f"Orchestration failed for job {job_id}: {e}", exc_info=True)
         
         # Mark job as failed
         try:
@@ -181,6 +185,18 @@ def generate_single_insight(
     
     This task runs in parallel (3-4 at a time based on worker concurrency)
     """
+    
+    # Create a task-specific logger with context
+    task_logger = logging.LoggerAdapter(logger, {
+        'extra_data': {
+            'task_id': self.request.id,
+            'insight_id': insight_id,
+            'job_id': job_id
+        }
+    })
+    
+    task_logger.info("Starting insight generation")
+    
     db = SessionLocal()
     start_time = time.time()
     
@@ -188,19 +204,18 @@ def generate_single_insight(
     redis_client = redis_lib.from_url(REDIS_URL, decode_responses=True)
     
     try:
-        logger.info(f"Generating insight {insight_id} for job {job_id}")
-        
-        # fetch context from redis if key provided
+        # Fetch context
         shared_context = None
         if shared_context_key:
             try:
                 raw = redis_client.get(shared_context_key)
                 if raw:
                     shared_context = json.loads(raw)
+                    task_logger.debug("Context loaded from Redis")
                 else:
-                    logger.warning(f"Context key {shared_context_key} not found in Redis; continuing with None")
+                    task_logger.warning(f"Context key not found in Redis: {shared_context_key}")
             except Exception as e:
-                logger.warning(f"Failed to fetch context from Redis ({e}); continuing with None")
+                task_logger.error(f"Failed to fetch context from Redis: {e}", exc_info=True)
         
         # Call generation function with shared context
         # If shared_context is None, your generator can re-extract or handle fallback.
@@ -213,6 +228,16 @@ def generate_single_insight(
         
         generation_time_ms = int((time.time() - start_time) * 1000)
         
+        task_logger.info(
+            f"Insight generated successfully in {generation_time_ms}ms",
+            extra={
+                'extra_data': {
+                    'tokens_used': insight.tokens_used,
+                    'generation_time_ms': generation_time_ms
+                }
+            }
+        )
+        
         # Update job progress
         orchestrator = InsightGenerationOrchestrator(db)
         orchestrator.update_job_progress(
@@ -223,10 +248,10 @@ def generate_single_insight(
             generation_time_ms=generation_time_ms
         )
         
-        logger.info(
-            f"✓ Insight {insight_id} completed in {generation_time_ms}ms "
-            f"({insight.tokens_used} tokens)"
-        )
+        # logger.info(
+        #     f"✓ Insight {insight_id} completed in {generation_time_ms}ms "
+        #     f"({insight.tokens_used} tokens)"
+        # )
         
         return {
             "insight_id": insight_id,
@@ -236,9 +261,12 @@ def generate_single_insight(
         }
         
     except Exception as e:
-        logger.error(f"✗ Insight {insight_id} failed: {e}", exc_info=True)
+        task_logger.error(
+            f"Insight generation failed: {e}",
+            exc_info=True
+        )
         
-        # Mark insight as failed
+        # Mark as failed and update job
         try:
             insight = db.query(Insight).filter(Insight.id == UUID(insight_id)).first()
             if insight:
@@ -255,13 +283,13 @@ def generate_single_insight(
                 error=str(e)
             )
         except Exception as update_error:
-            logger.error(f"Failed to update failure status: {update_error}")
+            task_logger.error(f"Failed to update failure status: {update_error}")
         
         # Retry logic (Celery will auto-retry based on task config)
         if self.request.retries < self.max_retries:
             # Exponential backoff: 5s, 10s
             countdown = 5 * (2 ** self.request.retries)
-            logger.info(f"Retrying insight {insight_id} in {countdown}s (attempt {self.request.retries + 1})")
+            task_logger.info(f"Retrying in {countdown}s (attempt {self.request.retries + 1})")
             raise self.retry(exc=e, countdown=countdown)
         
         return {

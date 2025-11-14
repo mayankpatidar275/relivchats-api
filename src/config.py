@@ -1,3 +1,5 @@
+# src/config.py 
+
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
@@ -48,9 +50,44 @@ class Settings(BaseSettings):
     STRIPE_PUBLISHABLE_KEY: str
     STRIPE_WEBHOOK_SECRET: str
 
+    # ========================================================================
+    # LOGGING CONFIGURATION
+    # ========================================================================
+    
+    # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+    LOG_LEVEL: str = "INFO"
+    
+    # Log format: "json" for structured logging, "human" for readable console output
+    LOG_FORMAT: str = "json"  # Use "human" for local development
+    
+    # Enable file logging (logs written to logs/ directory)
+    ENABLE_FILE_LOGGING: bool = True
+    
+    # Environment: development, staging, production
+    ENVIRONMENT: str = "development"
+    
+    # Sentry DSN for error tracking (optional)
+    SENTRY_DSN: str | None = None
+    SENTRY_TRACES_SAMPLE_RATE: float = 0.1  # Sample 10% of transactions
+    
+    # Performance monitoring thresholds
+    SLOW_REQUEST_THRESHOLD_SECONDS: float = 2.0
+    SLOW_DATABASE_QUERY_THRESHOLD_MS: int = 1000
+    
+    # ========================================================================
+    # ERROR HANDLING
+    # ========================================================================
+    
+    # Whether to expose detailed error messages (disable in production)
+    EXPOSE_ERROR_DETAILS: bool = True
+    
+    # Support contact for error messages
+    SUPPORT_EMAIL: str = "mayankpatidar275@gmail.com"
+    
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra="ignore"  # 👈 allows extra env vars without raising errors
 )
 
+# Create settings instance
 settings = Settings()
 
 # Fix CELERY URLs after settings is created

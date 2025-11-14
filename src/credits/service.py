@@ -14,6 +14,18 @@ from fastapi import HTTPException
 from ..rag.tasks import orchestrate_insight_generation  # ADD THIS IMPORT
 from ..rag.generation_service import InsightGenerationOrchestrator  # ADD THIS
 
+from ..logging_config import get_logger, log_business_event
+from ..error_handlers import (
+    NotFoundException,
+    InsufficientCreditsException,
+    DatabaseException,
+    ExternalServiceException,
+    ErrorCode
+)
+
+logger = get_logger(__name__)
+
+
 class CreditService:
     def __init__(self, db: Session):
         self.db = db
@@ -245,6 +257,18 @@ class CreditService:
         4. Create insight records
         5. Launch generation job
         """
+        
+        logger.info(
+            "Insights unlock requested",
+            extra={
+                "user_id": user_id,
+                "extra_data": {
+                    "chat_id": str(chat_id),
+                    "category_id": str(category_id)
+                }
+            }
+        )
+        
         # 1. Verify chat exists and belongs to user
         chat = self.db.query(Chat).filter(
             Chat.id == chat_id,
@@ -252,25 +276,48 @@ class CreditService:
         ).first()
         
         if not chat:
-            raise HTTPException(status_code=404, detail="Chat not found")
+            logger.warning(
+                f"Chat not found or unauthorized: {chat_id}",
+                extra={"user_id": user_id}
+            )
+            raise NotFoundException("Chat", str(chat_id))
         
         # 2. Check if insights already unlocked
         if chat.insights_unlocked_at:
+            logger.warning(
+                "Insights already unlocked",
+                extra={
+                    "user_id": user_id,
+                    "extra_data": {
+                        "chat_id": str(chat_id),
+                        "unlocked_at": chat.insights_unlocked_at.isoformat()
+                    }
+                }
+            )
             raise HTTPException(
                 status_code=400, 
-                detail="Insights already unlocked for this chat. Check job status or retry failed insights."
+                detail="Insights already unlocked for this chat"
             )
         
-        # 3. CRITICAL: Check vector status and trigger indexing if needed
+        # 3. Check vector status and trigger indexing if needed
         if chat.vector_status != "completed":
-            print(f"⚠️  Chat {chat_id} not indexed yet. Status: {chat.vector_status}")
+            logger.info(
+                f"Chat not indexed. Current status: {chat.vector_status}",
+                extra={"user_id": user_id, "extra_data": {"chat_id": str(chat_id)}}
+            )
             
             if chat.vector_status == "indexing":
                 raise HTTPException(
                     status_code=409,
-                    detail="Chat is currently being indexed. Please wait and try again in a few seconds."
+                    detail="Chat is currently being indexed. Please wait."
                 )
             
+            # Trigger synchronous indexing
+            logger.info(
+                "Triggering vector indexing",
+                extra={"user_id": user_id, "extra_data": {"chat_id": str(chat_id)}}
+            )
+
             if chat.vector_status == "failed":
                 raise HTTPException(
                     status_code=400,
@@ -288,27 +335,40 @@ class CreditService:
                 success = vector_service.create_chat_chunks(self.db, chat_id)
                 
                 if not success:
-                    raise HTTPException(
-                        status_code=500,
-                        detail="Failed to index chat. Please try again or contact support."
+                    logger.error(
+                        "Vector indexing failed",
+                        extra={"user_id": user_id, "extra_data": {"chat_id": str(chat_id)}}
+                    )
+                    raise ExternalServiceException(
+                        "Vector Database",
+                        "Failed to index chat",
+                        error_code=ErrorCode.VECTOR_INDEXING_FAILED
                     )
                 
-                print(f"✓ Chat {chat_id} indexed successfully")
+                logger.info(
+                    "Vector indexing completed",
+                    extra={"user_id": user_id, "extra_data": {"chat_id": str(chat_id)}}
+                )
                 
             except Exception as e:
-                print(f"✗ Indexing failed for chat {chat_id}: {e}")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to prepare chat for insights: {str(e)}"
+                logger.error(
+                    f"Indexing failed: {e}",
+                    extra={"user_id": user_id, "extra_data": {"chat_id": str(chat_id)}},
+                    exc_info=True
+                )
+                raise ExternalServiceException(
+                    "Vector Database",
+                    f"Failed to prepare chat: {str(e)}",
+                    error_code=ErrorCode.VECTOR_INDEXING_FAILED
                 )
         
-        # 4. Get all insight types for this category
+        # 4. Get insight types and calculate cost
         category_insights = self.db.query(CategoryInsightType).filter(
             CategoryInsightType.category_id == category_id
         ).all()
         
         if not category_insights:
-            raise HTTPException(status_code=404, detail="No insights found for this category")
+            raise NotFoundException("Category insights", str(category_id))
         
         # 5. Calculate total cost
         total_cost = sum(
@@ -317,22 +377,65 @@ class CreditService:
             if ci.insight_type.is_active
         )
         
-        # 6. Deduct credits (AFTER successful indexing)
-        transaction = self.deduct_credits(
-            user_id=user_id,
-            amount=total_cost,
-            transaction_type=TransactionType.INSIGHT_UNLOCK,
-            description=f"Unlocked {len(category_insights)} insights for chat",
-            metadata={
-                "chat_id": str(chat_id),
-                "category_id": str(category_id),
-                "insight_count": len(category_insights),
-                "cost_per_insight": {
-                    str(ci.insight_type_id): ci.insight_type.credit_cost
-                    for ci in category_insights
+        logger.info(
+            f"Insights unlock cost calculated: {total_cost} credits",
+            extra={
+                "user_id": user_id,
+                "extra_data": {
+                    "chat_id": str(chat_id),
+                    "insight_count": len(category_insights),
+                    "total_cost": total_cost
                 }
             }
         )
+        
+        # 5. Check balance and deduct credits
+        try:
+            # 6. Deduct credits (AFTER successful indexing)
+            transaction = self.deduct_credits(
+                user_id=user_id,
+                amount=total_cost,
+                transaction_type=TransactionType.INSIGHT_UNLOCK,
+                description=f"Unlocked {len(category_insights)} insights for chat",
+                metadata={
+                    "chat_id": str(chat_id),
+                    "category_id": str(category_id),
+                    "insight_count": len(category_insights),
+                    "cost_per_insight": {
+                        str(ci.insight_type_id): ci.insight_type.credit_cost
+                        for ci in category_insights
+                    }
+                }
+            )
+            
+            logger.info(
+                f"Credits deducted: {total_cost}",
+                extra={
+                    "user_id": user_id,
+                    "extra_data": {
+                        "transaction_id": str(transaction.id),
+                        "remaining_balance": transaction.balance_after
+                    }
+                }
+            )
+            
+        except HTTPException as e:
+            if e.status_code == 402:  # Insufficient credits
+                logger.warning(
+                    "Insufficient credits",
+                    extra={
+                        "user_id": user_id,
+                        "extra_data": {
+                            "required": total_cost,
+                            "available": self.get_balance(user_id)
+                        }
+                    }
+                )
+                raise InsufficientCreditsException(
+                    required=total_cost,
+                    available=self.get_balance(user_id)
+                )
+            raise
         
         # 7. Create insight records
         job_id = str(uuid.uuid4())
@@ -380,7 +483,18 @@ class CreditService:
             estimated_seconds = max(0, int(math.ceil(secs)))
         else:
             estimated_seconds = None
-
+        
+        # Log business event
+        log_business_event(
+            event_type="insights_unlocked",
+            user_id=user_id,
+            chat_id=str(chat_id),
+            category_id=str(category_id),
+            insight_count=len(category_insights),
+            credits_spent=total_cost,
+            job_id=job_id
+        )
+        
         return {
             "success": True,
             "job_id": job_id,

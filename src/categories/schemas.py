@@ -66,5 +66,6 @@ class CategoryResponse(BaseModel):
                 )
             ],
             insights_count=len(insights),
-            base_cost=sum(insight.credit_cost for insight in insights)
+            # base_cost=sum(insight.credit_cost for insight in insights)
+            base_cost=db_category.credit_cost
         )

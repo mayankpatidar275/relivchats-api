@@ -347,6 +347,31 @@ def soft_delete_chat(
 
 
 # ============================================================================
+# PUBLIC STATS (NO AUTH)
+# ============================================================================
+
+@router.get("/public/{chat_id}/stats")
+def get_public_chat_stats(
+    chat_id: UUID,
+    db: Session = Depends(get_db)
+):
+    """Get public chat statistics (no auth required)"""
+    chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
+    
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    
+    return {
+        "id": str(chat.id),
+        "filename": chat.title,
+        "participants": json.loads(chat.participants) if chat.participants else [],
+        "chat_metadata": chat.chat_metadata,
+        "created_at": chat.created_at,
+    }
+
+
+
+# ============================================================================
 # AI CONVERSATION (LEGACY - CONSIDER MOVING TO /rag)
 # ============================================================================
 
@@ -390,30 +415,6 @@ def soft_delete_chat(
 #             for msg in sorted_messages
 #         ]
 #     )
-
-
-# ============================================================================
-# PUBLIC STATS (NO AUTH)
-# ============================================================================
-
-@router.get("/public/{chat_id}/stats")
-def get_public_chat_stats(
-    chat_id: UUID,
-    db: Session = Depends(get_db)
-):
-    """Get public chat statistics (no auth required)"""
-    chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
-    
-    if not chat:
-        raise HTTPException(status_code=404, detail="Chat not found")
-    
-    return {
-        "id": str(chat.id),
-        "filename": chat.title,
-        "participants": json.loads(chat.participants) if chat.participants else [],
-        "chat_metadata": chat.chat_metadata,
-        "created_at": chat.created_at,
-    }
 
 
 

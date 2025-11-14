@@ -1,4 +1,4 @@
-# src/main.py 
+# src/main.py - UPDATED VERSION
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -51,8 +51,10 @@ async def lifespan(app: FastAPI):
     # Test database connection
     try:
         from .database import SessionLocal
+        from sqlalchemy import text
+        
         db = SessionLocal()
-        db.execute("SELECT 1")
+        db.execute(text("SELECT 1"))
         db.close()
         logger.info("✓ Database connection successful")
     except Exception as e:
@@ -132,7 +134,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers with /api prefix
+# ============================================================================
+# REGISTER EXCEPTION HANDLERS
+# ============================================================================
+register_exception_handlers(app)
+
+# ============================================================================
+# REGISTER ROUTERS
+# ============================================================================
+
 app.include_router(users_router, prefix='/api')
 app.include_router(chats_router, prefix='/api')
 app.include_router(insights_router, prefix='/api')
@@ -140,6 +150,21 @@ app.include_router(rag_router, prefix='/api')
 app.include_router(category_router, prefix='/api')
 app.include_router(credit_router, prefix='/api')
 app.include_router(payment_router, prefix='/api')
+
+logger.info("All routers registered")
+
+# ============================================================================
+# HEALTH CHECK ENDPOINT
+# ============================================================================
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for load balancers"""
+    return {
+        "status": "healthy",
+        "environment": settings.ENVIRONMENT,
+        "version": "1.0.0"
+    }
 
 
 @app.get("/")
@@ -150,10 +175,6 @@ async def root():
         "version": "1.0.0",
         "docs": "/docs"
     }
-
-@app.get("/health")
-def health_check():
-    return {"status": "healthy"}
 
 # # Add this endpoint for emergency bulk indexing
 # @router.post("/admin/reindex-all")

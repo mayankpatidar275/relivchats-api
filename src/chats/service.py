@@ -169,7 +169,7 @@ def get_user_chats(db: Session, user_id: str):
                 .options(
                     joinedload(models.Chat.category),
                     joinedload(models.Chat.insights).joinedload(Insight.insight_type),
-                    joinedload(models.Chat.messages)
+                    # REMOVED: joinedload(models.Chat.messages)  ← Don't load messages here
                 )\
                 .filter(
                     models.Chat.user_id == user_id,
@@ -428,52 +428,6 @@ def soft_delete_chat(db: Session, chat_id: str):
             exc_info=True
         )
         return False
-
-
-def get_chat_ai_conversation(db: Session, chat_id: UUID, user_id: str) -> Optional[AIConversation]:
-    """Get AI conversation for a specific chat and user"""
-    
-    logger.debug(
-        "Fetching AI conversation",
-        extra={
-            "user_id": user_id,
-            "extra_data": {"chat_id": str(chat_id)}
-        }
-    )
-    
-    try:
-        conversation = db.query(AIConversation).options(
-            joinedload(AIConversation.messages)
-        ).filter(
-            AIConversation.chat_id == chat_id,
-            AIConversation.user_id == user_id
-        ).first()
-        
-        if conversation:
-            logger.debug(
-                f"AI conversation found with {len(conversation.messages)} messages",
-                extra={
-                    "user_id": user_id,
-                    "extra_data": {
-                        "chat_id": str(chat_id),
-                        "message_count": len(conversation.messages)
-                    }
-                }
-            )
-        
-        return conversation
-    
-    except SQLAlchemyError as e:
-        logger.error(
-            f"Failed to fetch AI conversation: {e}",
-            extra={
-                "user_id": user_id,
-                "extra_data": {"chat_id": str(chat_id)}
-            },
-            exc_info=True
-        )
-        raise DatabaseException("Failed to fetch AI conversation", original_error=e)
-
 
 # ============================================================================
 # FILE PROCESSING
@@ -1226,113 +1180,160 @@ def compute_chat_metadata(chat: whatstk.WhatsAppChat, participants: List[str]) -
 # INSIGHT RELATED FUNCTIONS
 # ============================================================================
 
-def get_chat_insights_with_types(db: Session, chat_id: UUID):
-    """Get all insight types for a chat's category with generation status"""
+# def get_chat_insights_with_types(db: Session, chat_id: UUID):
+#     """Get all insight types for a chat's category with generation status"""
     
-    logger.debug(
-        "Fetching insight types for chat",
-        extra={"extra_data": {"chat_id": str(chat_id)}}
-    )
+#     logger.debug(
+#         "Fetching insight types for chat",
+#         extra={"extra_data": {"chat_id": str(chat_id)}}
+#     )
     
-    try:
-        # Get chat with category
-        chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
-        if not chat or not chat.category_id:
-            logger.debug(f"No category found for chat: {chat_id}")
-            return []
+#     try:
+#         # Get chat with category
+#         chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
+#         if not chat or not chat.category_id:
+#             logger.debug(f"No category found for chat: {chat_id}")
+#             return []
         
-        # Get insight types for this category
-        stmt = (
-            select(InsightType, Insight)
-            .join(CategoryInsightType, CategoryInsightType.insight_type_id == InsightType.id)
-            .outerjoin(
-                Insight,
-                (Insight.insight_type_id == InsightType.id) & (Insight.chat_id == chat_id)
-            )
-            .where(CategoryInsightType.category_id == chat.category_id)
-            .where(InsightType.is_active == True)
-            .order_by(CategoryInsightType.display_order)
-        )
+#         # Get insight types for this category
+#         stmt = (
+#             select(InsightType, Insight)
+#             .join(CategoryInsightType, CategoryInsightType.insight_type_id == InsightType.id)
+#             .outerjoin(
+#                 Insight,
+#                 (Insight.insight_type_id == InsightType.id) & (Insight.chat_id == chat_id)
+#             )
+#             .where(CategoryInsightType.category_id == chat.category_id)
+#             .where(InsightType.is_active == True)
+#             .order_by(CategoryInsightType.display_order)
+#         )
         
-        results = db.execute(stmt).all()
+#         results = db.execute(stmt).all()
         
-        # Format response
-        insights = []
-        for insight_type, insight in results:
-            insights.append({
-                "insight_type": insight_type,
-                "status": insight.status if insight else "pending",
-                "insight_id": insight.id if insight else None,
-                "has_content": bool(insight and insight.content)
-            })
+#         # Format response
+#         insights = []
+#         for insight_type, insight in results:
+#             insights.append({
+#                 "insight_type": insight_type,
+#                 "status": insight.status if insight else "pending",
+#                 "insight_id": insight.id if insight else None,
+#                 "has_content": bool(insight and insight.content)
+#             })
         
-        logger.debug(
-            f"Found {len(insights)} insight types for chat",
-            extra={
-                "extra_data": {
-                    "chat_id": str(chat_id),
-                    "insight_count": len(insights)
-                }
-            }
-        )
+#         logger.debug(
+#             f"Found {len(insights)} insight types for chat",
+#             extra={
+#                 "extra_data": {
+#                     "chat_id": str(chat_id),
+#                     "insight_count": len(insights)
+#                 }
+#             }
+#         )
         
-        return insights
+#         return insights
     
-    except SQLAlchemyError as e:
-        logger.error(
-            f"Failed to fetch insight types: {e}",
-            extra={"extra_data": {"chat_id": str(chat_id)}},
-            exc_info=True
-        )
-        raise DatabaseException("Failed to fetch insight types", original_error=e)
+#     except SQLAlchemyError as e:
+#         logger.error(
+#             f"Failed to fetch insight types: {e}",
+#             extra={"extra_data": {"chat_id": str(chat_id)}},
+#             exc_info=True
+#         )
+#         raise DatabaseException("Failed to fetch insight types", original_error=e)
+
+
+# def get_chat_ai_conversation(db: Session, chat_id: UUID, user_id: str) -> Optional[AIConversation]:
+#     """Get AI conversation for a specific chat and user"""
+    
+#     logger.debug(
+#         "Fetching AI conversation",
+#         extra={
+#             "user_id": user_id,
+#             "extra_data": {"chat_id": str(chat_id)}
+#         }
+#     )
+    
+#     try:
+#         conversation = db.query(AIConversation).options(
+#             joinedload(AIConversation.messages)
+#         ).filter(
+#             AIConversation.chat_id == chat_id,
+#             AIConversation.user_id == user_id
+#         ).first()
+        
+#         if conversation:
+#             logger.debug(
+#                 f"AI conversation found with {len(conversation.messages)} messages",
+#                 extra={
+#                     "user_id": user_id,
+#                     "extra_data": {
+#                         "chat_id": str(chat_id),
+#                         "message_count": len(conversation.messages)
+#                     }
+#                 }
+#             )
+        
+#         return conversation
+    
+#     except SQLAlchemyError as e:
+#         logger.error(
+#             f"Failed to fetch AI conversation: {e}",
+#             extra={
+#                 "user_id": user_id,
+#                 "extra_data": {"chat_id": str(chat_id)}
+#             },
+#             exc_info=True
+#         )
+#         raise DatabaseException("Failed to fetch AI conversation", original_error=e)
+
+
 
 
 # ============================================================================
 # DEPRECATED FUNCTIONS (KEPT FOR BACKWARD COMPATIBILITY)
 # ============================================================================
 
-def trigger_vector_indexing(db: Session, chat_id: UUID):
-    """
-    DEPRECATED: Trigger vector indexing for a completed chat
+# def trigger_vector_indexing(db: Session, chat_id: UUID):
+#     """
+#     DEPRECATED: Trigger vector indexing for a completed chat
     
-    This function is deprecated. Vector indexing is now done on-demand
-    when insights are unlocked. Kept for backward compatibility.
-    """
-    logger.warning(
-        "DEPRECATED: trigger_vector_indexing called - vector indexing is now on-demand",
-        extra={"extra_data": {"chat_id": str(chat_id)}}
-    )
+#     This function is deprecated. Vector indexing is now done on-demand
+#     when insights are unlocked. Kept for backward compatibility.
+#     """
+#     logger.warning(
+#         "DEPRECATED: trigger_vector_indexing called - vector indexing is now on-demand",
+#         extra={"extra_data": {"chat_id": str(chat_id)}}
+#     )
     
-    try:
-        from ..vector.service import vector_service
+#     try:
+#         from ..vector.service import vector_service
         
-        logger.info(
-            f"Starting on-demand vector indexing for chat: {chat_id}",
-            extra={"extra_data": {"chat_id": str(chat_id)}}
-        )
+#         logger.info(
+#             f"Starting on-demand vector indexing for chat: {chat_id}",
+#             extra={"extra_data": {"chat_id": str(chat_id)}}
+#         )
         
-        success = vector_service.create_chat_chunks(db, chat_id)
+#         success = vector_service.create_chat_chunks(db, chat_id)
         
-        if success:
-            logger.info(
-                f"Vector indexing completed for chat: {chat_id}",
-                extra={"extra_data": {"chat_id": str(chat_id)}}
-            )
-        else:
-            logger.error(
-                f"Vector indexing failed for chat: {chat_id}",
-                extra={"extra_data": {"chat_id": str(chat_id)}}
-            )
+#         if success:
+#             logger.info(
+#                 f"Vector indexing completed for chat: {chat_id}",
+#                 extra={"extra_data": {"chat_id": str(chat_id)}}
+#             )
+#         else:
+#             logger.error(
+#                 f"Vector indexing failed for chat: {chat_id}",
+#                 extra={"extra_data": {"chat_id": str(chat_id)}}
+#             )
             
-    except Exception as e:
-        logger.error(
-            f"Error during vector indexing: {e}",
-            extra={"extra_data": {"chat_id": str(chat_id)}},
-            exc_info=True
-        )
-        # Delete the chat completely on indexing failure
-        delete_chat(db, chat_id)
-        raise
+#     except Exception as e:
+#         logger.error(
+#             f"Error during vector indexing: {e}",
+#             extra={"extra_data": {"chat_id": str(chat_id)}},
+#             exc_info=True
+#         )
+#         # Delete the chat completely on indexing failure
+#         delete_chat(db, chat_id)
+#         raise
 
 
 # Note: You need to implement extract_txt_from_zip() function

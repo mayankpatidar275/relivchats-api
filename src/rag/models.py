@@ -145,6 +145,7 @@ class InsightGenerationJob(Base):
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(TIMESTAMP(timezone=True), onupdate=func.now())
 
+    payment_status = Column(String, default="pending")  # pending, success, failed
 
 
 # Why this matters:

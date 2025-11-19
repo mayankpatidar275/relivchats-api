@@ -83,10 +83,10 @@ class InsightGenerationJob(BaseModel):
 class UnlockInsightsResponse(BaseModel):
     success: bool
     job_id: str
-    coins_deducted: int
+    coins_reserved: int = 0
     remaining_balance: int
     total_insights: int  # How many insights will be generated
-    estimated_time_seconds: int
+    estimated_time_seconds: Optional[int] = None
 
 class InsightResponse(BaseModel):
     """Complete insight response with structured content"""

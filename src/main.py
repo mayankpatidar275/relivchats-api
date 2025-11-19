@@ -166,6 +166,10 @@ async def health_check():
         "version": "1.0.0"
     }
 
+@app.get("/health/db-pool")
+async def db_pool_health():
+    from .database import get_pool_status
+    return get_pool_status()
 
 @app.get("/")
 async def root():

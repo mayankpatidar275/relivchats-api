@@ -56,10 +56,10 @@ class TransactionHistoryResponse(BaseModel):
 class UnlockInsightsResponse(BaseModel):
     success: bool
     job_id: str
-    coins_deducted: int
+    coins_reserved: int = 0
     remaining_balance: int
     total_insights: int
-    estimated_time_seconds: Optional[float]
+    estimated_time_seconds: Optional[int] = None
     message: str
 
 

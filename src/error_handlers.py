@@ -11,6 +11,7 @@ from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from pydantic import ValidationError
 from typing import Any, Dict, Optional
 import traceback
+from datetime import timezone
 
 from .logging_config import get_logger
 from .config import settings
@@ -211,7 +212,7 @@ def format_error_response(
         "error": {
             "code": error_code,
             "message": message,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
     }
     

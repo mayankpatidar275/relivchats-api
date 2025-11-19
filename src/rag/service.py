@@ -1,6 +1,6 @@
 import time
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
@@ -207,132 +207,6 @@ def call_gemini_structured(
         raise RuntimeError(f"Gemini API error: {e}")
 
 # ============================================================================
-# MAIN INSIGHT GENERATION
-# ============================================================================
-
-def generate_insight(
-    db: Session,
-    chat_id: UUID,
-    insight_type_id: UUID
-) -> Insight:
-    """
-    Generate a new insight using RAG + Gemini structured output
-    
-    Flow:
-    1. Load InsightType config from DB
-    2. Get chat metadata and partner info
-    3. Fetch relevant chunks via RAG
-    4. Build prompt with injected context
-    5. Call Gemini with response schema
-    6. Store structured result
-    """
-    
-    start_time = time.time()
-    
-    # 1. Get insight type configuration
-    insight_type = db.query(InsightType).filter(
-        InsightType.id == insight_type_id
-    ).first()
-    
-    if not insight_type:
-        raise ValueError(f"Insight type {insight_type_id} not found")
-    
-    if not insight_type.is_active:
-        raise ValueError(f"Insight type {insight_type.name} is not active")
-    
-    # 2. Get chat and metadata
-    chat = get_chat_by_id(db, chat_id)
-    if not chat:
-        raise ValueError(f"Chat {chat_id} not found")
-    
-    if not chat.chat_metadata:
-        raise ValueError(f"Chat {chat_id} has no metadata. Process chat first.")
-    
-    # 3. Create or update insight record
-    insight = db.query(Insight).filter_by(
-        chat_id=chat_id,
-        insight_type_id=insight_type_id
-    ).first()
-    
-    if insight:
-        insight.status = InsightStatus.GENERATING
-        insight.error_message = None
-        insight.updated_at = datetime.utcnow()
-    else:
-        insight = Insight(
-            chat_id=chat_id,
-            insight_type_id=insight_type_id,
-            status=InsightStatus.GENERATING
-        )
-        db.add(insight)
-    
-    db.commit()
-    db.refresh(insight)
-    
-    try:
-        # 4. Fetch RAG chunks
-        rag_chunks = fetch_rag_chunks(
-            db=db,
-            chat_id=chat_id,
-            rag_query_keywords=insight_type.rag_query_keywords,
-            max_chunks=50
-        )
-        
-        if not rag_chunks:
-            raise ValueError("No relevant message chunks found for this insight")
-        
-        # 5. Extract required metadata
-        filtered_metadata = extract_required_metadata(
-            chat_metadata=chat.chat_metadata,
-            required_fields=insight_type.required_metadata_fields
-        )
-        
-        # 6. Build prompt context
-        prompt_context = schemas.InsightPromptContext(
-            user_display_name=chat.user_display_name or "User",
-            partner_name=chat.partner_name,
-            chat_metadata=filtered_metadata,
-            rag_chunks=rag_chunks,
-            chat_title=chat.title
-        )
-        
-        # 7. Build final prompt
-        final_prompt = build_insight_prompt(
-            prompt_template=insight_type.prompt_template,
-            context=prompt_context
-        )
-        
-        # 8. Call Gemini with structured output
-        structured_content, tokens_used = call_gemini_structured(
-            prompt=final_prompt,
-            response_schema=insight_type.response_schema,
-            temperature=0.7
-        )
-        
-        # 9. Update insight with results
-        generation_time_ms = int((time.time() - start_time) * 1000)
-        
-        insight.content = structured_content
-        insight.status = InsightStatus.COMPLETED
-        insight.tokens_used = tokens_used
-        insight.generation_time_ms = generation_time_ms
-        insight.rag_chunks_used = len(rag_chunks)
-        insight.updated_at = datetime.utcnow()
-        
-        db.commit()
-        db.refresh(insight)
-        
-        return insight
-        
-    except Exception as e:
-        # Mark as failed
-        insight.status = InsightStatus.FAILED
-        insight.error_message = str(e)[:500]  # Limit error message length
-        insight.updated_at = datetime.utcnow()
-        db.commit()
-        raise
-
-# ============================================================================
 # INSIGHT RETRIEVAL & REGENERATION
 # ============================================================================
 
@@ -346,23 +220,6 @@ def get_insight(
         Insight.chat_id == chat_id,
         Insight.insight_type_id == insight_type_id
     ).first()
-
-def regenerate_insight(
-    db: Session,
-    insight_id: UUID
-) -> Insight:
-    """Retry generating a failed insight"""
-    insight = db.query(Insight).filter(Insight.id == insight_id).first()
-    
-    if not insight:
-        raise ValueError(f"Insight {insight_id} not found")
-    
-    # Simply call generate_insight again
-    return generate_insight(
-        db=db,
-        chat_id=insight.chat_id,
-        insight_type_id=insight.insight_type_id
-    )
 
 def get_chat_insights_summary(
     db: Session,
@@ -425,22 +282,25 @@ def create_insight_response(db: Session, insight: Insight) -> schemas.InsightRes
         insight_type_id=insight.insight_type_id,
         insight_type_name=insight_type.name,
         display_title=insight_type.display_title,
+        description=insight_type.description,
         icon=insight_type.icon,
-        is_premium=insight_type.is_premium,
+        is_premium=insight_type.is_premium if insight_type else False,
         content=insight.content,
         status=insight.status,
         error_message=insight.error_message,
         generation_metadata=generation_metadata,
+        # confidence_score= None,
+        tokens_used=insight.tokens_used,
+        generation_time_ms=insight.generation_time_ms,
         created_at=insight.created_at,
         updated_at=insight.updated_at
     )
-
 
 def generate_insight_with_context(
     db: Session,
     chat_id: UUID,
     insight_type_id: UUID,
-    shared_context: Dict[str, List]
+    shared_context: Optional[Dict[str, List]] = None
 ) -> Insight:
     """
     Generate insight using pre-extracted shared RAG context
@@ -488,7 +348,7 @@ def generate_insight_with_context(
     if insight:
         insight.status = InsightStatus.GENERATING
         insight.error_message = None
-        insight.updated_at = datetime.utcnow()
+        insight.updated_at = datetime.now(timezone.utc)
     else:
         insight = Insight(
             chat_id=chat_id,
@@ -501,26 +361,36 @@ def generate_insight_with_context(
     db.refresh(insight)
     
     try:
-        # 4. Get relevant chunks from shared context
+        # 4. Handle shared context (FIXED)
+        rag_chunks = []
         context_key = f"insight_{insight_type_id}"
-        rag_chunks = shared_context.get(context_key, [])
         
-        # Fallback: If no pre-cached chunks, fetch them
+        if shared_context is not None:
+            # Use shared context if available
+            rag_chunks = shared_context.get(context_key, [])
+            logger.info(f"Using shared context for {context_key}: {len(rag_chunks)} chunks")
+            
+            # Convert dict chunks back to RAGChunk objects if needed
+            if rag_chunks and isinstance(rag_chunks[0], dict):
+                rag_chunks = [schemas.RAGChunk(**chunk) for chunk in rag_chunks]
+        else:
+            logger.warning(f"No shared context provided for {context_key}")
+        
+        # Fallback: If no pre-cached chunks, fetch them from Qdrant
         if not rag_chunks:
-            logger.warning(f"No cached chunks for {context_key}, fetching from Qdrant")
+            logger.info(f"Fetching fresh chunks from Qdrant for {context_key}")
             rag_chunks = fetch_rag_chunks(
                 db=db,
                 chat_id=chat_id,
                 rag_query_keywords=insight_type.rag_query_keywords,
                 max_chunks=50
             )
-        else:
-            # Convert dict chunks back to RAGChunk objects if needed
-            if rag_chunks and isinstance(rag_chunks[0], dict):
-                rag_chunks = [schemas.RAGChunk(**chunk) for chunk in rag_chunks]
         
         if not rag_chunks:
             raise ValueError("No relevant message chunks found for this insight")
+        
+        logger.info(f"Using {len(rag_chunks)} RAG chunks for insight generation")
+        
         
         # 5. Extract required metadata
         filtered_metadata = extract_required_metadata(
@@ -556,7 +426,7 @@ def generate_insight_with_context(
         insight.tokens_used = tokens_used
         insight.generation_time_ms = generation_time_ms
         insight.rag_chunks_used = len(rag_chunks)
-        insight.updated_at = datetime.utcnow()
+        insight.updated_at = datetime.now(timezone.utc)
         
         db.commit()
         db.refresh(insight)
@@ -567,12 +437,163 @@ def generate_insight_with_context(
         # Mark as failed
         insight.status = InsightStatus.FAILED
         insight.error_message = str(e)[:500]
-        insight.updated_at = datetime.utcnow()
+        insight.updated_at = datetime.now(timezone.utc)
         db.commit()
         raise
 
 
+
+
+
+
+
+
+
 # Not used for now
+
+# ============================================================================
+# MAIN INSIGHT GENERATION
+# ============================================================================
+
+def generate_insight(
+    db: Session,
+    chat_id: UUID,
+    insight_type_id: UUID
+) -> Insight:
+    """
+    Generate a new insight using RAG + Gemini structured output
+    
+    Flow:
+    1. Load InsightType config from DB
+    2. Get chat metadata and partner info
+    3. Fetch relevant chunks via RAG
+    4. Build prompt with injected context
+    5. Call Gemini with response schema
+    6. Store structured result
+    """
+    
+    start_time = time.time()
+    
+    # 1. Get insight type configuration
+    insight_type = db.query(InsightType).filter(
+        InsightType.id == insight_type_id
+    ).first()
+    
+    if not insight_type:
+        raise ValueError(f"Insight type {insight_type_id} not found")
+    
+    if not insight_type.is_active:
+        raise ValueError(f"Insight type {insight_type.name} is not active")
+    
+    # 2. Get chat and metadata
+    chat = get_chat_by_id(db, chat_id)
+    if not chat:
+        raise ValueError(f"Chat {chat_id} not found")
+    
+    if not chat.chat_metadata:
+        raise ValueError(f"Chat {chat_id} has no metadata. Process chat first.")
+    
+    # 3. Create or update insight record
+    insight = db.query(Insight).filter_by(
+        chat_id=chat_id,
+        insight_type_id=insight_type_id
+    ).first()
+    
+    if insight:
+        insight.status = InsightStatus.GENERATING
+        insight.error_message = None
+        insight.updated_at = datetime.now(timezone.utc)
+    else:
+        insight = Insight(
+            chat_id=chat_id,
+            insight_type_id=insight_type_id,
+            status=InsightStatus.GENERATING
+        )
+        db.add(insight)
+    
+    db.commit()
+    db.refresh(insight)
+    
+    try:
+        # 4. Fetch RAG chunks
+        rag_chunks = fetch_rag_chunks(
+            db=db,
+            chat_id=chat_id,
+            rag_query_keywords=insight_type.rag_query_keywords,
+            max_chunks=50
+        )
+        
+        if not rag_chunks:
+            raise ValueError("No relevant message chunks found for this insight")
+        
+        # 5. Extract required metadata
+        filtered_metadata = extract_required_metadata(
+            chat_metadata=chat.chat_metadata,
+            required_fields=insight_type.required_metadata_fields
+        )
+        
+        # 6. Build prompt context
+        prompt_context = schemas.InsightPromptContext(
+            user_display_name=chat.user_display_name or "User",
+            partner_name=chat.partner_name,
+            chat_metadata=filtered_metadata,
+            rag_chunks=rag_chunks,
+            chat_title=chat.title
+        )
+        
+        # 7. Build final prompt
+        final_prompt = build_insight_prompt(
+            prompt_template=insight_type.prompt_template,
+            context=prompt_context
+        )
+        
+        # 8. Call Gemini with structured output
+        structured_content, tokens_used = call_gemini_structured(
+            prompt=final_prompt,
+            response_schema=insight_type.response_schema,
+            temperature=0.7
+        )
+        
+        # 9. Update insight with results
+        generation_time_ms = int((time.time() - start_time) * 1000)
+        
+        insight.content = structured_content
+        insight.status = InsightStatus.COMPLETED
+        insight.tokens_used = tokens_used
+        insight.generation_time_ms = generation_time_ms
+        insight.rag_chunks_used = len(rag_chunks)
+        insight.updated_at = datetime.now(timezone.utc)
+        
+        db.commit()
+        db.refresh(insight)
+        
+        return insight
+        
+    except Exception as e:
+        # Mark as failed
+        insight.status = InsightStatus.FAILED
+        insight.error_message = str(e)[:500]  # Limit error message length
+        insight.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        raise
+
+def regenerate_insight(
+    db: Session,
+    insight_id: UUID
+) -> Insight:
+    """Retry generating a failed insight"""
+    insight = db.query(Insight).filter(Insight.id == insight_id).first()
+    
+    if not insight:
+        raise ValueError(f"Insight {insight_id} not found")
+    
+    # Simply call generate_insight again
+    return generate_insight(
+        db=db,
+        chat_id=insight.chat_id,
+        insight_type_id=insight.insight_type_id
+    )
+
 
 def create_rag_prompt(question: str, context_chunks: List[Dict], chat_title: str = None, conversation_history: List[Dict] = None) -> str:
     """Create a prompt for the LLM with context and conversation history"""
@@ -769,5 +790,5 @@ def query_chat_with_rag(
         sources_used=sources,
         confidence=confidence,
         response_time_ms=response_time_ms,
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )

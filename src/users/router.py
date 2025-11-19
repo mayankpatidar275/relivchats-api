@@ -1,79 +1,110 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Annotated
+
 from ..auth.dependencies import get_current_user_id
-from datetime import datetime
-from ..credits.service import CreditService 
-
-from ..database import get_db
+from ..database import get_async_db
 from . import schemas, service
+from ..credits.service import CreditService
+from ..logging_config import get_logger
 
-router = APIRouter(
-    prefix="/users",
-    tags=["users"],
-)
+logger = get_logger(__name__)
+
+router = APIRouter(prefix="/users", tags=["users"])
+
 
 @router.post("/store", response_model=schemas.UserOut)
-def store_user(
-    user: schemas.UserStore,     
+async def store_user(
+    user: schemas.UserStore,
     user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Session = Depends(get_db)):
-    db_user = service.store_user_on_login(db=db, user=user)
-    # Give signup bonus (50 coins) - NEW
-    credit_service = CreditService(db)
-    credit_service.add_signup_bonus(user_id, bonus_amount=50)
-    return db_user
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Store user on first login and grant signup bonus"""
+    
+    logger.info(f"Storing user on login", extra={"user_id": user_id})
+    
+    try:
+        # Store/update user (make this async)
+        db_user = await service.store_user_on_login_async(db=db, user=user)
+        
+        # Give signup bonus (50 coins) - ASYNC
+        await CreditService.add_signup_bonus_async(db, user_id, bonus_amount=50)
+        
+        logger.info("User stored and signup bonus granted", extra={"user_id": user_id})
+        
+        return db_user
+        
+    except Exception as e:
+        logger.error(f"Failed to store user: {str(e)}", extra={"user_id": user_id}, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to store user")
 
 @router.delete("/delete-account", response_model=schemas.UserDeleteResponse)
 async def delete_account(
     user_id: Annotated[str, Depends(get_current_user_id)],
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Delete user account from both database and Clerk
-    Complies with GDPR and data protection regulations
+    Delete user account (GDPR compliance)
+    
+    Process:
+    1. Soft delete in our DB (immediate)
+    2. Delete from Clerk (immediate)
+    3. Schedule hard delete (background, after 30 days)
     """
-
-    # Check if user exists
-    user = service.get_user_by_id(db, user_id)
-    if not user:
-        raise HTTPException(
-            status_code=404, 
-            detail="User not found"
-        )
     
-    # 1. Soft delete in our DB first (immediate)
-    deleted_user = service.soft_delete_user(db, user_id)
-    if not deleted_user:
-        raise HTTPException(
-            status_code=500, 
-            detail="Failed to delete user account"
-        )
+    logger.info(f"Account deletion requested", extra={"user_id": user_id})
     
-    # 2. Delete from Clerk (immediate - required for compliance)
     try:
-        await service.delete_clerk_user(user_id)
+        # Check if user exists (make async)
+        user = await service.get_user_by_id_async(db, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # 1. Soft delete in our DB
+        deleted_user = await service.soft_delete_user_async(db, user_id)
+        if not deleted_user:
+            raise HTTPException(status_code=500, detail="Failed to delete user")
+        
+        # 2. Delete from Clerk
+        try:
+            await service.delete_clerk_user(user_id)
+            logger.info(f"User deleted from Clerk", extra={"user_id": user_id})
+        except Exception as e:
+            logger.error(
+                f"Failed to delete from Clerk: {str(e)}",
+                extra={"user_id": user_id},
+                exc_info=True
+            )
+            # Don't fail request - user is soft-deleted
+        
+        # 3. Schedule permanent cleanup (30 days)
+        background_tasks.add_task(
+            service.schedule_hard_delete,
+            user_id
+        )
+        
+        logger.info(
+            "Account deletion completed",
+            extra={"user_id": user_id}
+        )
+        
+        return schemas.UserDeleteResponse(
+            success=True,
+            message="Account deleted successfully",
+            deleted_at=deleted_user.deleted_at,
+            user_id=user_id
+        )
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        # Log the error but don't fail the request
-        # User is already soft-deleted in our DB
-        print(f"Warning: Failed to delete Clerk user {user_id}: {e}")
-        # You might want to queue this for retry
-    
-    # 3. Schedule permanent cleanup in background (after 30 days)
-    background_tasks.add_task(
-        # service.schedule_hard_delete,
-        service.hard_delete_user_data, 
-        db, 
-        user_id
-    )
-    
-    return schemas.UserDeleteResponse(
-        success=True,
-        message="Account successfully deleted. All data will be permanently removed.",
-        deleted_at=deleted_user.deleted_at,
-        user_id=user_id
-    )
+        logger.error(
+            f"Account deletion failed: {str(e)}",
+            extra={"user_id": user_id},
+            exc_info=True
+        )
+        raise HTTPException(status_code=500, detail="Deletion failed")
 
 # @router.post("/clerk-webhook")
 # async def clerk_webhook(request: Request, db: Session = Depends(get_db)):

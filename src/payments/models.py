@@ -1,7 +1,7 @@
 # src/payments/models.py
 from sqlalchemy import Column, String, Integer, DECIMAL, DateTime, JSON, Enum as SQLEnum, Boolean
 from sqlalchemy.dialects.postgresql import UUID
-from datetime import datetime
+from datetime import datetime, timezone, timezone
 import uuid
 from ..database import Base
 from .base import PaymentProvider, PaymentStatus
@@ -30,8 +30,8 @@ class PaymentOrder(Base):
     # Idempotency
     idempotency_key = Column(String, unique=True, index=True)
     
-    # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    # Timestamps - Use timezone-naive UTC
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     completed_at = Column(DateTime)
     
     # Metadata
@@ -67,7 +67,7 @@ class PaymentRefund(Base):
     status = Column(String, nullable=False)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     processed_at = Column(DateTime)
     
     # Metadata

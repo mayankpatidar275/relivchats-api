@@ -1,4 +1,4 @@
-# CONTEXT: RelivChats - Complete Product Documentation (UPDATED)
+# CONTEXT: RelivChats - Complete Product Documentation
 
 ## 1. PRODUCT OVERVIEW
 
@@ -122,17 +122,12 @@
    b. Create insight generation job for ALL 6 insights
    c. Launch Celery tasks (parallel generation)
 6. Frontend polls job status every 2-3 seconds
-7. Insights appear progressively as they complete (no individual unlocking)
-8. If >50% insights fail → Automatic full refund (400 coins back)
 ```
 
 ### 4.3 Failure Handling
 
 ```
-- If >50% insights fail → Automatic refund of full category cost
-- Individual insight failures → User sees "3 of 6 complete" but no partial charges
-- Vector indexing failure → Full refund before generation starts
-- Payment failures → No coins deducted
+- Coins deduct after insight generation.
 ```
 
 ---
@@ -213,7 +208,7 @@ relivchats-web/
 
 ---
 
-## 6. DATABASE SCHEMA (UPDATED)
+## 6. DATABASE SCHEMA (Few things NOT UPDATED)
 
 ### 6.1 Core Tables
 
@@ -466,7 +461,6 @@ POST   /api/insights/refund          # Trigger refund (if >50% failed)
 4. Create transaction: insight_unlock, -400, balance_after=50
 5. Start generating ALL 6 insights in parallel
 6. User sees progress (3 of 6 complete...)
-7. If >50% fail: Auto-refund 400 coins
 ```
 
 ---
@@ -487,18 +481,15 @@ POST   /api/insights/refund          # Trigger refund (if >50% failed)
 - Responsive design
 - Error handling basics
 - Razorpay payment integration
+- Refund logic
 - **Pricing finalized (50 signup, 400 per romantic, 3 packages)**
 
 ### 🚧 In Progress:
 
-- Refund logic
-- Transaction failure handling
-- Edge case testing
+- Edge cases (any failure handling or anything)
 
 ### 📋 TODO (V1):
 
-- Payment webhook verification
-- Refund automation (>50% failure rule)
 - Error monitoring (Sentry)
 - Performance optimization
 - User testing
@@ -520,27 +511,19 @@ POST   /api/insights/refund          # Trigger refund (if >50% failed)
 
 ### Technical:
 
-- [ ] Razorpay payment integration complete
-- [ ] Refund logic tested (>50% failure)
-- [ ] All 6 insights generate successfully
-- [ ] Mobile responsive
-- [ ] Error handling for failures
-- [ ] Transaction history accurate
-- [ ] Database migration: credit_cost in categories, price_inr in packages
+- [ ] Edge cases
+- [ ] Testing all the insights generation at once
+- [ ] Knowing the limitations
+- [ ] Frontend for pooling insights generation status
 
 ### Business:
 
-- [ ] Pricing finalized ✅ (50 signup, 400 romantic, 3 packages)
-- [ ] Credit packages configured (400/850/1600 coins)
-- [ ] Terms of service
-- [ ] Privacy policy
-- [ ] Refund policy
+- [ ] Showing different pricing to different users with offers
 
 ### Marketing:
 
 - [ ] Homepage copy (emphasize depth over ChatBump)
 - [ ] Category landing pages
-- [ ] Testimonials
 - [ ] Social media assets
 - [ ] Launch post ready
 
@@ -555,7 +538,6 @@ POST   /api/insights/refund          # Trigger refund (if >50% failed)
 3. **Category-based bundling** - Complete analysis, not piecemeal
 4. **India-first** - Handles Hinglish, cultural context
 5. **Pay-per-use** - No subscriptions, sporadic usage model
-6. **Privacy-focused** - Local processing, user controls data
 
 **Pricing Positioning:**
 

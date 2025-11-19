@@ -17,7 +17,9 @@ class Settings(BaseSettings):
 
     # Generation settings
     MAX_CONCURRENT_INSIGHTS: int = 3  # Generate 3 insights in parallel
-    INSIGHT_GENERATION_TIMEOUT: int = 120  # 2 minutes per insight
+    # INSIGHT_GENERATION_TIMEOUT: int = 120  # 2 minutes per insight
+    # INSIGHT_GENERATION_TIMEOUT: int = 5  # 5 minutes per insight
+    INSIGHT_GENERATION_TIMEOUT: int = 10  # 10 minutes per insight
     RAG_CHUNK_CACHE_TTL: int = 3600  # Cache RAG chunks for 1 hour
     
     # Vector Database Settings
@@ -28,6 +30,11 @@ class Settings(BaseSettings):
     QDRANT_COLLECTION_NAME: str = "chat_messages"
     # QDRANT_VECTOR_SIZE: int = 768  # Gemini embedding dimension
     QDRANT_VECTOR_SIZE: int = 3072  # Gemini embedding dimension
+
+    # Qdrant settings
+    QDRANT_TIMEOUT: int = 300  # 5 minutes
+    QDRANT_BATCH_SIZE: int = 100
+    QDRANT_MAX_RETRIESint: int = 3
     
     # Gemini API Settings
     GEMINI_API_KEY: str

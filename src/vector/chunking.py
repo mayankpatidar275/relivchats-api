@@ -4,6 +4,9 @@ from typing import List, Dict, Any, Tuple
 from dataclasses import dataclass
 from ..config import settings
 from uuid import UUID
+from ..logging_config import get_logger
+
+logger = get_logger(__name__)
 
 @dataclass
 class ChunkMessage:
@@ -168,7 +171,13 @@ class ConversationChunker:
         return chunks
 
 def chunk_chat_messages(db_messages, platform: str = "whatsapp") -> List[ConversationChunk]:
-    """Convert database messages to chunks"""
+    """Convert database messages to chunks with logging"""
+    
+    logger.debug(
+        f"Starting message chunking",
+        extra={"extra_data": {"message_count": len(db_messages), "platform": platform}}
+    )
+    
     # Convert DB messages to ChunkMessage objects
     chunk_messages = []
     for msg in db_messages:
@@ -178,9 +187,27 @@ def chunk_chat_messages(db_messages, platform: str = "whatsapp") -> List[Convers
             content=msg.content,
             timestamp=msg.timestamp
         ))
+    
     # Create chunker and process
     chunker = ConversationChunker(platform=platform)
-    return chunker.chunk_messages(chunk_messages)
+    chunks = chunker.chunk_messages(chunk_messages)
+    
+    if chunks:
+        avg_tokens = sum(c.estimated_tokens for c in chunks) // len(chunks)
+        logger.info(
+            f"Chunking complete",
+            extra={
+                "extra_data": {
+                    "chunk_count": len(chunks),
+                    "avg_tokens_per_chunk": avg_tokens,
+                    "total_messages": len(chunk_messages)
+                }
+            }
+        )
+    else:
+        logger.warning("No chunks created from messages")
+    
+    return chunks
 
 
     # def _format_messages_to_text(self, messages: List[ChunkMessage]) -> str:

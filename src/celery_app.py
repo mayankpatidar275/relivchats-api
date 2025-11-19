@@ -3,9 +3,9 @@
 from celery import Celery
 from celery.signals import task_prerun, task_postrun, task_failure
 from .config import settings
-import logging
+from .logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Initialize Celery
 celery_app = Celery(
@@ -42,22 +42,41 @@ celery_app.conf.update(
     
     # Worker settings
     worker_prefetch_multiplier=1,  # Fetch 1 task at a time (better for long tasks)
-    worker_max_tasks_per_child=50,  # Restart worker after 50 tasks (prevent memory leaks)
+    # worker_max_tasks_per_child=50,  # Restart worker after 50 tasks (prevent memory leaks)
+    worker_max_tasks_per_child=100,  # Restart worker after 100 tasks (prevent memory leaks)
 )
 
 # Signals for monitoring
 
 @task_prerun.connect
-def task_prerun_handler(sender=None, task_id=None, task=None, args=None, kwargs=None, **extra):
+def task_prerun_handler(sender=None, task_id=None, task=None, **kwargs):
     """Log when task starts"""
-    logger.info(f"Task started: {task.name} [ID: {task_id}]")
+    logger.info(
+        f"Task started: {task.name}",
+        extra={"extra_data": {"task_id": task_id, "task_name": task.name}}
+    )
 
 @task_postrun.connect
-def task_postrun_handler(sender=None, task_id=None, task=None, args=None, kwargs=None, retval=None, state=None, **extra):
+def task_postrun_handler(sender=None, task_id=None, task=None, state=None, **kwargs):
     """Log when task completes"""
-    logger.info(f"Task completed: {task.name} [ID: {task_id}] State: {state}")
+    logger.info(
+        f"Task completed: {task.name}",
+        extra={"extra_data": {"task_id": task_id, "state": state}}
+    )
 
 @task_failure.connect
-def task_failure_handler(sender=None, task_id=None, exception=None, args=None, kwargs=None, traceback=None, **extra):
+def task_failure_handler(sender=None, task_id=None, exception=None, **kwargs):
     """Log when task fails"""
-    logger.error(f"Task failed: {sender.name} [ID: {task_id}] Error: {exception}")
+    logger.error(
+        f"Task failed: {sender.name}",
+        extra={"extra_data": {"task_id": task_id, "error": str(exception)}},
+        exc_info=True
+    )
+
+# Add beat schedule for cleanup tasks:
+celery_app.conf.beat_schedule = {
+    'cleanup-expired-reservations': {
+        'task': 'cleanup_expired_reservations',
+        'schedule': 300.0,  # Every 5 minutes
+    },
+}

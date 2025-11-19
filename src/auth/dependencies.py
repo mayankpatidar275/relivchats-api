@@ -3,23 +3,45 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import httpx
 from typing import Annotated
 
-# Import from the recommended Clerk SDK
 from clerk_backend_api import Clerk
 from clerk_backend_api.security import authenticate_request
 from clerk_backend_api.security.types import AuthenticateRequestOptions
 from clerk_backend_api.models import ClerkBaseError
 
-# Assuming your settings are correctly configured
 from ..config import settings
+from ..logging_config import get_logger
 
-# Initialize Clerk client - consider moving to startup event for production
-clerk_client = Clerk(bearer_auth=settings.CLERK_SECRET_KEY)
+logger = get_logger(__name__)
+
+# Initialize Clerk client once (module-level)
+try:
+    clerk_client = Clerk(bearer_auth=settings.CLERK_SECRET_KEY)
+    logger.info("Clerk client initialized")
+except Exception as e:
+    logger.critical(f"Failed to initialize Clerk client: {e}", exc_info=True)
+    clerk_client = None
+
 bearer_scheme = HTTPBearer()
+
 
 async def get_current_user_id(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(bearer_scheme)]
 ) -> str:
+    """
+    Authenticate request and extract user ID
+    
+    Raises:
+        HTTPException: 401 if authentication fails
+    """
+    
+    if not clerk_client:
+        logger.critical("Clerk client not initialized")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Authentication service unavailable"
+        )
+    
     try:
         # Convert FastAPI request to httpx request for Clerk's authenticate_request
         httpx_request = httpx.Request(
@@ -33,11 +55,16 @@ async def get_current_user_id(
             httpx_request,
             AuthenticateRequestOptions(
                 # Add your frontend domain if needed
-                authorized_parties=[getattr(settings, 'FRONTEND_URL', None)] if hasattr(settings, 'FRONTEND_URL') else None
+                authorized_parties=[getattr(settings, 'FRONTEND_URL', None)] 
+                if hasattr(settings, 'FRONTEND_URL') else None
             )
         )
         
         if not request_state.is_signed_in:
+            logger.warning(
+                f"Authentication failed: {request_state.reason}",
+                extra={"extra_data": {"reason": request_state.reason}}
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=f"Authentication failed: {request_state.reason}",
@@ -46,17 +73,21 @@ async def get_current_user_id(
         
         # Extract user ID from token payload
         user_id = request_state.payload.get('sub')
-
+        
         if not user_id:
+            logger.error("Token missing user ID (sub claim)")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token: missing user ID",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-            
+        
+        logger.debug(f"User authenticated successfully", extra={"user_id": user_id})
+        
         return user_id
-
+        
     except ClerkBaseError as e:
+        logger.error(f"Clerk authentication error: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials",
@@ -64,8 +95,12 @@ async def get_current_user_id(
         )
     except HTTPException:
         raise
-    except Exception:
+    except Exception as e:
+        logger.critical(
+            f"Unexpected authentication error: {str(e)}",
+            exc_info=True
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An unexpected error occurred during authentication."
+            detail="Authentication error"
         )

@@ -214,3 +214,5 @@ temp-data/
 logs/*.log
   logs/*.log.*
   *.py.backup
+
+logs

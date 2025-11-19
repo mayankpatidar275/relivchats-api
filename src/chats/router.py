@@ -369,63 +369,6 @@ def get_chat_details(
 
 
 # ============================================================================
-# UPDATE DISPLAY NAME
-# ============================================================================
-
-@router.put("/{chat_id}/display-name", response_model=schemas.ChatUploadResponse)
-def update_user_display_name(
-    chat_id: str,
-    request: schemas.UpdateUserDisplayName,
-    user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Session = Depends(get_db)
-):
-    """Update user's display name for a chat"""
-    
-    logger.info(
-        "Updating user display name",
-        extra={
-            "user_id": user_id,
-            "extra_data": {
-                "chat_id": chat_id,
-                "new_display_name": request.user_display_name
-            }
-        }
-    )
-    
-    try:
-        chat = service.update_user_display_name(
-            db, chat_id, user_id, request.user_display_name
-        )
-        
-        if not chat:
-            logger.warning(
-                f"Chat not found or unauthorized: {chat_id}",
-                extra={"user_id": user_id}
-            )
-            raise NotFoundException("Chat", chat_id)
-        
-        logger.info(
-            f"Display name updated for chat: {chat_id}",
-            extra={"user_id": user_id}
-        )
-        
-        return schemas.ChatUploadResponse.from_orm(chat)
-    
-    except NotFoundException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"Failed to update display name: {e}",
-            extra={
-                "user_id": user_id,
-                "extra_data": {"chat_id": chat_id}
-            },
-            exc_info=True
-        )
-        raise DatabaseException(f"Failed to update display name", original_error=e)
-
-
-# ============================================================================
 # GET CHAT MESSAGES
 # ============================================================================
 
@@ -653,97 +596,6 @@ def soft_delete_chat(
 
 
 # ============================================================================
-# AI CONVERSATION (LEGACY - CONSIDER MOVING TO /rag)
-# ============================================================================
-
-@router.get("/{chat_id}/ai-conversation", response_model=schemas.AIConversationResponse)
-def get_chat_ai_conversation_endpoint(
-    chat_id: UUID,
-    db: Session = Depends(get_db),
-    user_id = Depends(get_current_user_id)
-):
-    """Get AI conversation history for a chat"""
-    
-    logger.debug(
-        "Fetching AI conversation",
-        extra={
-            "user_id": user_id,
-            "extra_data": {"chat_id": str(chat_id)}
-        }
-    )
-    
-    try:
-        # Verify user owns the chat
-        chat = service.get_chat_by_id(db, chat_id)
-        if not chat:
-            logger.warning(
-                f"Chat not found for AI conversation: {chat_id}",
-                extra={"user_id": user_id}
-            )
-            raise NotFoundException("Chat", str(chat_id))
-        
-        if str(chat.user_id) != str(user_id):
-            logger.warning(
-                f"Unauthorized AI conversation access: {chat_id}",
-                extra={"user_id": user_id}
-            )
-            raise ForbiddenException("Not authorized to access this chat")
-        
-        # Get conversation
-        conversation = service.get_chat_ai_conversation(db, chat_id, str(user_id))
-        
-        if not conversation:
-            logger.info(
-                f"No AI conversation found for chat: {chat_id}",
-                extra={"user_id": user_id}
-            )
-            raise NotFoundException("AI conversation", str(chat_id))
-        
-        # Sort messages chronologically
-        sorted_messages = sorted(conversation.messages, key=lambda x: x.created_at)
-        
-        logger.debug(
-            f"AI conversation retrieved with {len(sorted_messages)} messages",
-            extra={
-                "user_id": user_id,
-                "extra_data": {
-                    "chat_id": str(chat_id),
-                    "message_count": len(sorted_messages)
-                }
-            }
-        )
-        
-        return schemas.AIConversationResponse(
-            id=str(conversation.id),
-            chat_id=str(conversation.chat_id),
-            created_at=conversation.created_at,
-            updated_at=conversation.updated_at,
-            messages=[
-                schemas.AIMessageResponse(
-                    id=str(msg.id),
-                    message_type=msg.message_type.value,
-                    content=msg.content,
-                    created_at=msg.created_at
-                )
-                for msg in sorted_messages
-            ]
-        )
-    
-    except (NotFoundException, ForbiddenException):
-        raise
-    except Exception as e:
-        logger.error(
-            f"Failed to retrieve AI conversation: {e}",
-            extra={
-                "user_id": user_id,
-                "extra_data": {"chat_id": str(chat_id)}
-            },
-            exc_info=True
-        )
-        raise DatabaseException(f"Failed to retrieve AI conversation", original_error=e)
-
-
-# ============================================================================
 # PUBLIC STATS (NO AUTH)
 # ============================================================================
 
@@ -788,6 +640,156 @@ def get_public_chat_stats(
             exc_info=True
         )
         raise DatabaseException(f"Failed to retrieve public stats", original_error=e)
+
+
+# ============================================================================
+# UPDATE DISPLAY NAME
+# ============================================================================
+
+@router.put("/{chat_id}/display-name", response_model=schemas.ChatUploadResponse)
+def update_user_display_name(
+    chat_id: str,
+    request: schemas.UpdateUserDisplayName,
+    user_id: Annotated[str, Depends(get_current_user_id)],
+    db: Session = Depends(get_db)
+):
+    """Update user's display name for a chat"""
+    
+    logger.info(
+        "Updating user display name",
+        extra={
+            "user_id": user_id,
+            "extra_data": {
+                "chat_id": chat_id,
+                "new_display_name": request.user_display_name
+            }
+        }
+    )
+    
+    try:
+        chat = service.update_user_display_name(
+            db, chat_id, user_id, request.user_display_name
+        )
+        
+        if not chat:
+            logger.warning(
+                f"Chat not found or unauthorized: {chat_id}",
+                extra={"user_id": user_id}
+            )
+            raise NotFoundException("Chat", chat_id)
+        
+        logger.info(
+            f"Display name updated for chat: {chat_id}",
+            extra={"user_id": user_id}
+        )
+        
+        return schemas.ChatUploadResponse.from_orm(chat)
+    
+    except NotFoundException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to update display name: {e}",
+            extra={
+                "user_id": user_id,
+                "extra_data": {"chat_id": chat_id}
+            },
+            exc_info=True
+        )
+        raise DatabaseException(f"Failed to update display name", original_error=e)
+
+
+
+
+# ============================================================================
+# AI CONVERSATION (LEGACY - CONSIDER MOVING TO /rag)
+# ============================================================================
+
+# @router.get("/{chat_id}/ai-conversation", response_model=schemas.AIConversationResponse)
+# def get_chat_ai_conversation_endpoint(
+#     chat_id: UUID,
+#     db: Session = Depends(get_db),
+#     user_id = Depends(get_current_user_id)
+# ):
+#     """Get AI conversation history for a chat"""
+    
+#     logger.debug(
+#         "Fetching AI conversation",
+#         extra={
+#             "user_id": user_id,
+#             "extra_data": {"chat_id": str(chat_id)}
+#         }
+#     )
+    
+#     try:
+#         # Verify user owns the chat
+#         chat = service.get_chat_by_id(db, chat_id)
+#         if not chat:
+#             logger.warning(
+#                 f"Chat not found for AI conversation: {chat_id}",
+#                 extra={"user_id": user_id}
+#             )
+#             raise NotFoundException("Chat", str(chat_id))
+        
+#         if str(chat.user_id) != str(user_id):
+#             logger.warning(
+#                 f"Unauthorized AI conversation access: {chat_id}",
+#                 extra={"user_id": user_id}
+#             )
+#             raise ForbiddenException("Not authorized to access this chat")
+        
+#         # Get conversation
+#         conversation = service.get_chat_ai_conversation(db, chat_id, str(user_id))
+        
+#         if not conversation:
+#             logger.info(
+#                 f"No AI conversation found for chat: {chat_id}",
+#                 extra={"user_id": user_id}
+#             )
+#             raise NotFoundException("AI conversation", str(chat_id))
+        
+#         # Sort messages chronologically
+#         sorted_messages = sorted(conversation.messages, key=lambda x: x.created_at)
+        
+#         logger.debug(
+#             f"AI conversation retrieved with {len(sorted_messages)} messages",
+#             extra={
+#                 "user_id": user_id,
+#                 "extra_data": {
+#                     "chat_id": str(chat_id),
+#                     "message_count": len(sorted_messages)
+#                 }
+#             }
+#         )
+        
+#         return schemas.AIConversationResponse(
+#             id=str(conversation.id),
+#             chat_id=str(conversation.chat_id),
+#             created_at=conversation.created_at,
+#             updated_at=conversation.updated_at,
+#             messages=[
+#                 schemas.AIMessageResponse(
+#                     id=str(msg.id),
+#                     message_type=msg.message_type.value,
+#                     content=msg.content,
+#                     created_at=msg.created_at
+#                 )
+#                 for msg in sorted_messages
+#             ]
+#         )
+    
+#     except (NotFoundException, ForbiddenException):
+#         raise
+#     except Exception as e:
+#         logger.error(
+#             f"Failed to retrieve AI conversation: {e}",
+#             extra={
+#                 "user_id": user_id,
+#                 "extra_data": {"chat_id": str(chat_id)}
+#             },
+#             exc_info=True
+#         )
+#         raise DatabaseException(f"Failed to retrieve AI conversation", original_error=e)
 
 
 # ============================================================================

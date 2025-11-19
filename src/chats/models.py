@@ -48,6 +48,9 @@ class Chat(Base):
     total_insights_completed = Column(Integer, default=0)
     total_insights_failed = Column(Integer, default=0)
 
+    reserved_coins = Column(Integer, default=0, nullable=True)
+    reservation_expires_at = Column(TIMESTAMP(timezone=True), nullable=True)
+
     messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
     insights = relationship("Insight", back_populates="chat", cascade="all, delete-orphan")
     ai_conversations = relationship("AIConversation", back_populates="chat", cascade="all, delete-orphan")

@@ -247,76 +247,76 @@ async def get_chat_insights(
 # RETRY FAILED INSIGHT
 # ============================================================================
 
-@router.post("/{insight_id}/retry")
-async def retry_failed_insight_endpoint(
-    insight_id: UUID,
-    user_id: Annotated[str, Depends(get_current_user_id)],
-    db: AsyncSession = Depends(get_async_db)
-):
-    """
-    Retry a failed insight (manual trigger)
+# @router.post("/{insight_id}/retry")
+# async def retry_failed_insight_endpoint(
+#     insight_id: UUID,
+#     user_id: Annotated[str, Depends(get_current_user_id)],
+#     db: AsyncSession = Depends(get_async_db)
+# ):
+#     """
+#     Retry a failed insight (manual trigger)
     
-    Useful when individual insights fail due to temporary issues.
+#     Useful when individual insights fail due to temporary issues.
     
-    Errors:
-    - 404: Insight not found
-    - 403: Access denied
-    - 400: No job found for this chat
-    """
-    logger.info(
-        f"Retry insight requested: {insight_id}",
-        extra={"user_id": user_id}
-    )
+#     Errors:
+#     - 404: Insight not found
+#     - 403: Access denied
+#     - 400: No job found for this chat
+#     """
+#     logger.info(
+#         f"Retry insight requested: {insight_id}",
+#         extra={"user_id": user_id}
+#     )
     
-    try:
-        result = await db.execute(
-            select(Insight).where(Insight.id == insight_id)
-        )
-        insight = result.scalar_one_or_none()
+#     try:
+#         result = await db.execute(
+#             select(Insight).where(Insight.id == insight_id)
+#         )
+#         insight = result.scalar_one_or_none()
         
-        if not insight:
-            raise NotFoundException("Insight", str(insight_id))
+#         if not insight:
+#             raise NotFoundException("Insight", str(insight_id))
         
-        # Verify ownership
-        result = await db.execute(
-            select(Chat).where(
-                and_(
-                    Chat.id == insight.chat_id,
-                    Chat.user_id == user_id,
-                    Chat.is_deleted == False
-                )
-            )
-        )
-        chat = result.scalar_one_or_none()
+#         # Verify ownership
+#         result = await db.execute(
+#             select(Chat).where(
+#                 and_(
+#                     Chat.id == insight.chat_id,
+#                     Chat.user_id == user_id,
+#                     Chat.is_deleted == False
+#                 )
+#             )
+#         )
+#         chat = result.scalar_one_or_none()
         
-        if not chat:
-            raise HTTPException(status_code=403, detail="Access denied")
+#         if not chat:
+#             raise HTTPException(status_code=403, detail="Access denied")
         
-        if not chat.insights_job_id:
-            raise HTTPException(
-                status_code=400,
-                detail="No job found for this chat"
-            )
+#         if not chat.insights_job_id:
+#             raise HTTPException(
+#                 status_code=400,
+#                 detail="No job found for this chat"
+#             )
         
-        # Trigger retry task
-        retry_failed_insight.delay(
-            insight_id=str(insight_id),
-            job_id=chat.insights_job_id
-        )
+#         # Trigger retry task
+#         retry_failed_insight.delay(
+#             insight_id=str(insight_id),
+#             job_id=chat.insights_job_id
+#         )
         
-        logger.info(
-            f"Retry queued for insight {insight_id}",
-            extra={"user_id": user_id}
-        )
+#         logger.info(
+#             f"Retry queued for insight {insight_id}",
+#             extra={"user_id": user_id}
+#         )
         
-        return {
-            "success": True,
-            "message": "Retry queued",
-            "insight_id": str(insight_id)
-        }
+#         return {
+#             "success": True,
+#             "message": "Retry queued",
+#             "insight_id": str(insight_id)
+#         }
         
-    except (NotFoundException, HTTPException):
-        raise
+#     except (NotFoundException, HTTPException):
+#         raise
 
 
 # ============================================================================

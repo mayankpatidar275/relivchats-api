@@ -130,7 +130,7 @@ class GetChatResponse(BaseModel):
         # ) if db_chat.insights else False
 
         # Check if insights exist
-        insights_unlocked = len(db_chat.insights) > 0
+        # insights_unlocked = len(db_chat.insights) > 0
         
         return cls(
             chat_id=db_chat.id,
@@ -143,7 +143,7 @@ class GetChatResponse(BaseModel):
             category_id=db_chat.category_id,
             category_slug=category_slug,
             category_name=category_name,
-            insights_unlocked=insights_unlocked,
+            insights_unlocked=db_chat.insights_generation_status == "completed",
             created_at=db_chat.created_at,
             platform=db_chat.platform,
             status=db_chat.status,

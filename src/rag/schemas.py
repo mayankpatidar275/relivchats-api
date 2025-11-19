@@ -95,6 +95,7 @@ class InsightResponse(BaseModel):
     insight_type_id: UUID
     insight_type_name: str
     display_title: str
+    description: Optional[str]
     icon: str
     is_premium: bool
     content: Optional[Dict[str, Any]]  # Structured JSON from Gemini
@@ -200,7 +201,7 @@ class CategoryBasicResponse(BaseModel):
 
 class ChatInsightsResponse(BaseModel):
     chat_id: UUID
-    category: Optional[CategoryBasicResponse]  # NEW
+    category: Optional[CategoryBasicResponse]
     generation_status: str
     unlocked_at: Optional[datetime]
     total_requested: int

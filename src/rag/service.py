@@ -178,7 +178,8 @@ def call_gemini_structured(
         generation_config = types.GenerateContentConfig(
             temperature=temperature,
             response_mime_type="application/json",
-            response_schema=response_schema
+            response_schema=response_schema, 
+            automatic_function_calling={"disable": True}
         )
         
         # Generate content

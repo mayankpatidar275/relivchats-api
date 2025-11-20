@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_INSIGHTS: int = 3  # Generate 3 insights in parallel
     # INSIGHT_GENERATION_TIMEOUT: int = 120  # 2 minutes per insight
     # INSIGHT_GENERATION_TIMEOUT: int = 5  # 5 minutes per insight
-    INSIGHT_GENERATION_TIMEOUT: int = 10  # 10 minutes per insight
+    INSIGHT_GENERATION_TIMEOUT: int = 20  # 20 minutes per insight
     RAG_CHUNK_CACHE_TTL: int = 3600  # Cache RAG chunks for 1 hour
     
     # Vector Database Settings

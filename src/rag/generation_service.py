@@ -60,7 +60,8 @@ class InsightGenerationOrchestrator:
         
         # Estimate completion time (7s per insight avg)
         total_insights = len(insight_types)
-        estimated_seconds = (total_insights / settings.MAX_CONCURRENT_INSIGHTS) * 7
+        # estimated_seconds = (total_insights / settings.MAX_CONCURRENT_INSIGHTS) * 7
+        estimated_seconds = (total_insights / 1) * 10
         estimated_completion = datetime.now(timezone.utc) + timedelta(seconds=estimated_seconds)
         
         job = InsightGenerationJob(

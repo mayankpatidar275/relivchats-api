@@ -169,7 +169,7 @@ def orchestrate_insight_generation(self, job_id: str):
             # Serialize context for Redis storage
             serializable_context = _make_context_serializable(context)
             
-            # Store in Redis with TTL (10 minutes)
+            # Store in Redis with TTL (20 minutes)
             context_key = f"rag_context:{job_id}"
             
             try:
@@ -177,13 +177,13 @@ def orchestrate_insight_generation(self, job_id: str):
                     redis_client.set(
                         context_key,
                         json.dumps(serializable_context),
-                        ex=600  # 10 minutes TTL
+                        ex=1200  # 20 minutes TTL
                     )
                     logger.debug(
                         "Context stored in Redis",
                         extra={"extra_data": {
                             "context_key": context_key,
-                            "ttl_seconds": 600
+                            "ttl_seconds": 1200
                         }}
                     )
             except Exception as e:

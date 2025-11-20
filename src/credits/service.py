@@ -567,7 +567,7 @@ class CreditService:
                 user_id=user_id,
                 chat_id=chat_id,
                 amount=total_cost,
-                reservation_ttl=600  # 10 minutes
+                reservation_ttl=1200  # 20 minutes
             )
             
             # 7. Create insight records

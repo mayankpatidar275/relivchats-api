@@ -124,8 +124,8 @@ def get_chat_by_id(db: Session, chat_id: UUID):
             chat = db.query(models.Chat)\
                 .options(
                     joinedload(models.Chat.category),
-                    joinedload(models.Chat.insights).joinedload(Insight.insight_type),
-                    joinedload(models.Chat.messages)
+                    joinedload(models.Chat.insights).joinedload(Insight.insight_type)
+                    # joinedload(models.Chat.messages)
                 )\
                 .filter(models.Chat.id == chat_id)\
                 .first()

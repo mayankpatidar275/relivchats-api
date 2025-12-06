@@ -1,24 +1,28 @@
-import time
 import json
-from datetime import datetime, timezone
-from typing import List, Dict, Optional, Any, Tuple
-from sqlalchemy.orm import Session
-from sqlalchemy.exc import SQLAlchemyError
-from fastapi import HTTPException, status
-from uuid import UUID
-import time
-import uuid
 import logging
+import time
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+from uuid import UUID
 
+from fastapi import HTTPException, status
 from google import genai
 from google.genai import types
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from ..vector.service import vector_service
-from ..chats.service import get_chat_by_id
-from .models import Insight, InsightType, InsightStatus, AIConversation, AIMessage, MessageType
-from . import schemas
+from ..chats.service import _get_chat_by_id_sync
 from ..config import settings
+from ..vector.service import vector_service
+from . import schemas
+from .models import (
+    AIConversation,
+    AIMessage,
+    Insight,
+    InsightStatus,
+    InsightType,
+    MessageType,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -326,7 +330,7 @@ def generate_insight_with_context(
         raise ValueError(f"Insight type {insight_type.name} is not active")
     
     # 2. Get chat and metadata
-    chat = get_chat_by_id(db, chat_id)
+    chat = _get_chat_by_id_sync(db, chat_id)
     if not chat:
         raise ValueError(f"Chat {chat_id} not found")
     
@@ -487,7 +491,7 @@ def generate_insight(
         raise ValueError(f"Insight type {insight_type.name} is not active")
     
     # 2. Get chat and metadata
-    chat = get_chat_by_id(db, chat_id)
+    chat = _get_chat_by_id_sync(db, chat_id)
     if not chat:
         raise ValueError(f"Chat {chat_id} not found")
     
@@ -731,7 +735,7 @@ def query_chat_with_rag(
     conversation_history = get_conversation_history(db, str(conversation.id))
     
     # Get chat info
-    chat = get_chat_by_id(db, chat_id)
+    chat = _get_chat_by_id_sync(db, chat_id)
     chat_title = chat.title if chat else None
     
     # Search for relevant chunks

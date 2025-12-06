@@ -80,7 +80,7 @@ def store_user_on_login(db: Session, user: schemas.UserStore) -> models.User:
         # Check for active user
         db_user = db.query(models.User).filter(
             models.User.user_id == user.user_id,
-            models.User.is_deleted == False
+            not models.User.is_deleted
         ).first()
         
         if db_user:
@@ -368,85 +368,103 @@ def schedule_hard_delete(db: Session, user_id: str):
 # ============================================================================
 
 async def store_user_on_login_async(
-    db: AsyncSession, 
+    db: AsyncSession,
     user: schemas.UserStore
 ) -> models.User:
     """
     Store or update user on login (ASYNC)
-    
+
     Async variant for FastAPI endpoints
+    Handles race conditions gracefully with retry logic
     """
-    logger.info(f"Processing user login (async)", extra={"user_id": user.user_id})
-    
+    logger.info("Processing user login (async)", extra={"user_id": user.user_id})
+
     try:
         # Check for active user
         result = await db.execute(
             select(models.User).where(
                 models.User.user_id == user.user_id,
-                models.User.is_deleted == False
+                not models.User.is_deleted
             )
         )
         db_user = result.scalar_one_or_none()
-        
+
         if db_user:
-            logger.debug(f"Returning existing user", extra={"user_id": user.user_id})
+            logger.debug("Returning existing user", extra={"user_id": user.user_id})
             return db_user
-        
+
         # Check for deleted user (reactivation)
         result = await db.execute(
             select(models.User).where(
                 models.User.user_id == user.user_id,
-                models.User.is_deleted == True
+                models.User.is_deleted
             )
         )
         deleted_user = result.scalar_one_or_none()
-        
+
         if deleted_user:
-            logger.info(f"Reactivating deleted user", extra={"user_id": user.user_id})
-            
+            logger.info("Reactivating deleted user", extra={"user_id": user.user_id})
+
             deleted_user.is_deleted = False
             deleted_user.deleted_at = None
             deleted_user.email = user.email
-            
+
             await db.commit()
             await db.refresh(deleted_user)
-            
+
             log_business_event(
                 "user_reactivated",
                 user_id=user.user_id,
                 email=user.email
             )
-            
+
             return deleted_user
-        
+
         # Create new user
-        logger.info(f"Creating new user on first login", extra={"user_id": user.user_id})
-        
+        logger.info("Creating new user on first login", extra={"user_id": user.user_id})
+
         db_user = models.User(
             user_id=user.user_id,
             email=user.email,
             credit_balance=0
         )
-        
+
         db.add(db_user)
         await db.commit()
         await db.refresh(db_user)
-        
+
         log_business_event(
             "user_first_login",
             user_id=user.user_id,
             email=user.email
         )
-        
+
         return db_user
-        
+
     except Exception as e:
+        await db.rollback()
+
+        # Handle duplicate key error gracefully (race condition from concurrent login)
+        if "duplicate key" in str(e).lower() or "unique" in str(e).lower():
+            logger.info(
+                "User already exists (concurrent creation detected)",
+                extra={"user_id": user.user_id}
+            )
+            # Retry: fetch the user that was just created
+            result = await db.execute(
+                select(models.User).where(
+                    models.User.user_id == user.user_id
+                )
+            )
+            existing_user = result.scalar_one_or_none()
+            if existing_user:
+                return existing_user
+
         logger.error(
             f"Failed to store user: {e}",
             extra={"user_id": user.user_id},
             exc_info=True
         )
-        await db.rollback()
         raise DatabaseException(
             message="Failed to store user",
             original_error=e

@@ -3,6 +3,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import time
+import asyncio
 
 from .config import settings
 from .logging_config import setup_logging, get_logger
@@ -20,6 +22,35 @@ from .payments.router import router as payment_router
 
 # Initialize logger (will be configured during startup)
 logger = get_logger(__name__)
+
+# Background task state
+_app_state = {"keepalive_task": None}
+
+
+async def _neon_keepalive():
+    """
+    Background task to keep Neon compute from suspending.
+
+    Neon's Scale-to-Zero suspends compute after 5 minutes of inactivity.
+    This task runs a lightweight health check every 4 minutes in production.
+    """
+    if settings.ENVIRONMENT != "production":
+        return
+
+    try:
+        from .database import async_session
+        from sqlalchemy import text
+
+        while True:
+            try:
+                await asyncio.sleep(240)  # Run every 4 minutes
+                async with async_session() as session:
+                    await session.execute(text("SELECT 1"))
+                logger.debug("Neon keepalive: connection refreshed")
+            except Exception as e:
+                logger.warning(f"Neon keepalive error: {e}")
+    except Exception as e:
+        logger.error(f"Failed to start Neon keepalive task: {e}")
 
 
 @asynccontextmanager
@@ -54,7 +85,9 @@ async def lifespan(app: FastAPI):
         from sqlalchemy import text
         
         db = SessionLocal()
+        start = time.time()
         db.execute(text("SELECT 1"))
+        logger.info(f"select(1) took {(time.time()-start)*1000:.1f}ms")
         db.close()
         logger.info("✓ Database connection successful")
     except Exception as e:
@@ -69,7 +102,12 @@ async def lifespan(app: FastAPI):
         logger.info("✓ Redis connection successful")
     except Exception as e:
         logger.warning(f"⚠ Redis connection failed: {e}")
-    
+
+    # Start Neon keepalive task (prevents Scale-to-Zero suspension in production)
+    _app_state["keepalive_task"] = asyncio.create_task(_neon_keepalive())
+    if settings.ENVIRONMENT == "production":
+        logger.info("✓ Neon keepalive task started (prevents Scale-to-Zero suspension)")
+
     # Initialize Sentry (if configured)
     # if settings.SENTRY_DSN:
     #     try:
@@ -102,6 +140,14 @@ async def lifespan(app: FastAPI):
     logger.info("="*80)
     logger.info("Shutting down RelivChats API")
     logger.info("="*80)
+
+    # Cancel keepalive task
+    if _app_state["keepalive_task"]:
+        _app_state["keepalive_task"].cancel()
+        try:
+            await _app_state["keepalive_task"]
+        except asyncio.CancelledError:
+            logger.debug("Neon keepalive task cancelled")
 
 
 # ============================================================================

@@ -65,7 +65,7 @@ services:
     image: relivchats-api:latest
     container_name: relivchats_celery_worker
     restart: unless-stopped
-    command: celery -A src.celery_app worker --loglevel=info --concurrency=1 --time-limit=330 --soft-time-limit=300
+    command: celery -A src.celery_app worker
     environment:
       - CELERY_WORKER=true # ✅ Add this line
       - CELERY_BROKER_URL=${REDIS_URL}
@@ -105,7 +105,7 @@ services:
     image: relivchats-api:latest
     container_name: relivchats_celery_beat
     restart: unless-stopped
-    command: celery -A src.celery_app beat --loglevel=info
+    command: celery -A src.celery_app beat
     environment:
       - CELERY_BROKER_URL=${REDIS_URL}
       - REDIS_URL=${REDIS_URL}

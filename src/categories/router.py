@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+import time
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from typing import List
@@ -21,14 +22,23 @@ async def get_categories(db: AsyncSession = Depends(get_async_db)):
     logger.debug("Fetching categories")
     
     try:
+
+        start = time.time()
+        await db.execute(select(1))  # tiniest possible query
+        logger.info(f"select(1) took {(time.time()-start)*1000:.1f}ms")
+
+        start = time.time()
+        logger.info(f"DB query START")
+        
         result = await db.execute(
             select(models.AnalysisCategory)
-            .where(models.AnalysisCategory.is_active == True)
+            .where(models.AnalysisCategory.is_active)
             .options(
                 selectinload(models.AnalysisCategory.insight_types)
                 .selectinload(models.CategoryInsightType.insight_type)
             )
         )
+        logger.info(f"DB query DONE in {(time.time()-start)*1000:.1f}ms")
         categories = result.scalars().all()
         
         logger.debug(f"Found {len(categories)} categories")

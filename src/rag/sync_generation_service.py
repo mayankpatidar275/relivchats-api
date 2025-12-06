@@ -236,31 +236,13 @@ class SyncInsightGenerationOrchestrator:
         )
         
         from ..credits.service import CreditService
-        
-        # Run async function in sync context
-        import asyncio
-        
-        async def charge_coins():
-            from ..database import async_session
-            async with async_session() as async_db:
-                try:
-                    transaction = await CreditService.charge_reserved_coins(
-                        db=async_db,
-                        chat_id=job.chat_id
-                    )
-                    logger.info(f"✓ Coins charged: {transaction.amount}")
-                    return True
-                except Exception as e:
-                    logger.error(f"Failed to charge coins: {e}")
-                    return False
-        
+
+        # Use sync version of CreditService (no asyncio.run overhead)
         try:
-            success = asyncio.run(charge_coins())
-            if not success:
-                # Queue retry
-                from .tasks import retry_payment_deduction
-                retry_payment_deduction.delay(str(job.chat_id))
-                
+            service = CreditService(self.db)
+            transaction = service.charge_reserved_coins_sync(job.chat_id)
+            logger.info(f"✓ Coins charged: {transaction.amount}")
+
         except Exception as e:
             logger.error(f"Error charging coins: {e}")
             # Queue retry
@@ -282,19 +264,14 @@ class SyncInsightGenerationOrchestrator:
         )
         
         from ..credits.service import CreditService
-        import asyncio
-        
-        async def release_reservation():
-            from ..database import async_session
-            async with async_session() as async_db:
-                await CreditService.release_reservation(
-                    db=async_db,
-                    chat_id=job.chat_id,
-                    reason=f"{job.failed_insights}/{job.total_insights} insights failed"
-                )
-        
+
+        # Use sync version of CreditService (no asyncio.run overhead)
         try:
-            asyncio.run(release_reservation())
+            service = CreditService(self.db)
+            service.release_reservation_sync(
+                job.chat_id,
+                reason=f"{job.failed_insights}/{job.total_insights} insights failed"
+            )
             logger.info("✓ Reservation released (no charge)")
         except Exception as e:
             logger.error(f"Failed to release reservation: {e}")

@@ -21,7 +21,7 @@ async def store_user(
 ):
     """Store user on first login and grant signup bonus"""
     
-    logger.info(f"Storing user on login", extra={"user_id": user_id})
+    logger.info("Storing user on login", extra={"user_id": user_id})
     
     try:
         # Store/update user (make this async)
@@ -53,7 +53,7 @@ async def delete_account(
     3. Schedule hard delete (background, after 30 days)
     """
     
-    logger.info(f"Account deletion requested", extra={"user_id": user_id})
+    logger.info("Account deletion requested", extra={"user_id": user_id})
     
     try:
         # Check if user exists (make async)
@@ -69,7 +69,7 @@ async def delete_account(
         # 2. Delete from Clerk
         try:
             await service.delete_clerk_user(user_id)
-            logger.info(f"User deleted from Clerk", extra={"user_id": user_id})
+            logger.info("User deleted from Clerk", extra={"user_id": user_id})
         except Exception as e:
             logger.error(
                 f"Failed to delete from Clerk: {str(e)}",

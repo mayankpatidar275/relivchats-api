@@ -172,12 +172,36 @@ class ExternalServiceException(AppException):
 
 class FileProcessingException(AppException):
     """Raised when file processing fails"""
-    
+
     def __init__(self, message: str, error_code: str = ErrorCode.CHAT_PROCESSING_FAILED):
         super().__init__(
             message=message,
             error_code=error_code,
             status_code=status.HTTP_400_BAD_REQUEST
+        )
+
+
+class LockTimeoutException(AppException):
+    """Raised when database row lock cannot be acquired (async migrations)"""
+
+    def __init__(self, resource: str, message: str = "Resource is currently locked"):
+        super().__init__(
+            message=f"{resource}: {message}",
+            error_code=ErrorCode.DATABASE_ERROR,
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,  # Temporary unavailability
+            details={"resource": resource, "cause": "lock_timeout"}
+        )
+
+
+class AsyncDatabaseException(AppException):
+    """Raised when async database operations fail (connection, timeout, etc.)"""
+
+    def __init__(self, message: str, original_error: Optional[Exception] = None):
+        super().__init__(
+            message=message,
+            error_code=ErrorCode.DATABASE_ERROR,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            details={"original_error": str(original_error)} if original_error else {}
         )
 
 
@@ -400,11 +424,84 @@ async def generic_exception_handler(
     )
 
 
+async def lock_timeout_exception_handler(
+    request: Request,
+    exc: LockTimeoutException
+) -> JSONResponse:
+    """Handler for database lock timeout errors (async migrations)"""
+
+    request_id = getattr(request.state, "request_id", None)
+
+    logger.warning(
+        f"Lock timeout: {exc.message}",
+        extra={
+            "request_id": request_id,
+            "extra_data": {
+                "resource": exc.details.get("resource"),
+                "path": str(request.url),
+                "method": request.method
+            }
+        }
+    )
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=format_error_response(
+            error_code=exc.error_code,
+            message=exc.message,
+            status_code=exc.status_code,
+            details=exc.details,
+            request_id=request_id
+        )
+    )
+
+
+async def async_database_exception_handler(
+    request: Request,
+    exc: AsyncDatabaseException
+) -> JSONResponse:
+    """Handler for async database operation errors"""
+
+    request_id = getattr(request.state, "request_id", None)
+
+    logger.error(
+        f"Async database error: {exc.message}",
+        extra={
+            "request_id": request_id,
+            "extra_data": {
+                "path": str(request.url),
+                "method": request.method,
+                "original_error": exc.details.get("original_error")
+            }
+        },
+        exc_info=True
+    )
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=format_error_response(
+            error_code=exc.error_code,
+            message=exc.message,
+            status_code=exc.status_code,
+            details=exc.details if settings.ENVIRONMENT != "production" else None,
+            request_id=request_id
+        )
+    )
+
+
 def register_exception_handlers(app):
     """
     Register all exception handlers with FastAPI app
     Call this in main.py during app initialization
+
+    Handlers are registered in order of specificity:
+    1. Custom app exceptions (most specific)
+    2. Validation errors
+    3. SQLAlchemy errors
+    4. Generic exceptions (least specific)
     """
+    app.add_exception_handler(LockTimeoutException, lock_timeout_exception_handler)
+    app.add_exception_handler(AsyncDatabaseException, async_database_exception_handler)
     app.add_exception_handler(AppException, app_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)

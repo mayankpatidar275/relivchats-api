@@ -18,10 +18,8 @@ from ..database import get_async_db
 from ..auth.dependencies import get_current_user_id
 from ..credits.service import CreditService
 from ..rag.generation_service import InsightGenerationOrchestrator
-from ..rag.tasks import retry_failed_insight
 from ..rag import schemas as rag_schemas
 from ..rag.models import Insight, AnalysisCategory, InsightGenerationJob
-from ..rag.service import create_insight_response
 from ..chats.models import Chat
 from ..credits import schemas as credit_schemas
 from ..logging_config import get_logger
@@ -242,6 +240,49 @@ async def get_chat_insights(
     except NotFoundException:
         raise HTTPException(status_code=404, detail="Chat not found")
 
+# ============================================================================
+# HELPER FUNCTIONS (ASYNC)
+# ============================================================================
+
+async def create_insight_response_async(
+    db: AsyncSession,
+    insight: Insight
+) -> rag_schemas.InsightResponse:
+    """Create insight response (async variant)"""
+    # Get insight type details
+    from ..rag.models import InsightType
+    
+    result = await db.execute(
+        select(InsightType).where(InsightType.id == insight.insight_type_id)
+    )
+    insight_type = result.scalar_one()
+    
+    return rag_schemas.InsightResponse(
+        id=insight.id,
+        chat_id=insight.chat_id,
+        insight_type_id=insight.insight_type_id,
+        insight_type_name=insight_type.name,
+        display_title=insight_type.display_title,
+        description=insight_type.description,
+        icon=insight_type.icon,
+        content=insight.content,
+        status=insight.status,
+        is_premium=insight_type.is_premium if insight_type else False,
+        generation_metadata=rag_schemas.InsightGenerationMetadata(
+            tokens_used=insight.tokens_used or 0,
+            generation_time_ms=insight.generation_time_ms or 0,
+            rag_chunks_used=insight.rag_chunks_used or 0,
+            model_used=settings.GEMINI_LLM_MODEL
+        ),
+        # confidence_score= None,
+        error_message=insight.error_message,
+        tokens_used=insight.tokens_used,
+        generation_time_ms=insight.generation_time_ms,
+        created_at=insight.created_at,
+        updated_at=insight.updated_at
+    )
+
+
 
 # ============================================================================
 # RETRY FAILED INSIGHT
@@ -317,46 +358,3 @@ async def get_chat_insights(
         
 #     except (NotFoundException, HTTPException):
 #         raise
-
-
-# ============================================================================
-# HELPER FUNCTIONS (ASYNC)
-# ============================================================================
-
-async def create_insight_response_async(
-    db: AsyncSession,
-    insight: Insight
-) -> rag_schemas.InsightResponse:
-    """Create insight response (async variant)"""
-    # Get insight type details
-    from ..rag.models import InsightType
-    
-    result = await db.execute(
-        select(InsightType).where(InsightType.id == insight.insight_type_id)
-    )
-    insight_type = result.scalar_one()
-    
-    return rag_schemas.InsightResponse(
-        id=insight.id,
-        chat_id=insight.chat_id,
-        insight_type_id=insight.insight_type_id,
-        insight_type_name=insight_type.name,
-        display_title=insight_type.display_title,
-        description=insight_type.description,
-        icon=insight_type.icon,
-        content=insight.content,
-        status=insight.status,
-        is_premium=insight_type.is_premium if insight_type else False,
-        generation_metadata=rag_schemas.InsightGenerationMetadata(
-            tokens_used=insight.tokens_used or 0,
-            generation_time_ms=insight.generation_time_ms or 0,
-            rag_chunks_used=insight.rag_chunks_used or 0,
-            model_used=settings.GEMINI_LLM_MODEL
-        ),
-        # confidence_score= None,
-        error_message=insight.error_message,
-        tokens_used=insight.tokens_used,
-        generation_time_ms=insight.generation_time_ms,
-        created_at=insight.created_at,
-        updated_at=insight.updated_at
-    )

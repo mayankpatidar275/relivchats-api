@@ -11,7 +11,7 @@ Key improvements:
 - Charge coins only after ALL insights succeed
 """
 
-from celery import group, chord
+from celery import chord
 from sqlalchemy.orm import Session
 from uuid import UUID
 import time
@@ -562,19 +562,16 @@ def retry_payment_deduction(self, chat_id: str):
         }}
     )
     
-    import asyncio
-    from ..database import async_session
     from ..credits.service import CreditService
-    
-    async def attempt_charge():
-        async with async_session() as async_db:
-            await CreditService.charge_reserved_coins(
-                db=async_db,
-                chat_id=UUID(chat_id)
-            )
+    from ..error_handlers import InsufficientCreditsException
     
     try:
-        asyncio.run(attempt_charge())
+        # Use the shared sync get_db_session() context manager
+        with get_db_session() as db:
+            CreditService.charge_reserved_coins(
+                db=db,
+                chat_id=UUID(chat_id)
+            )
         
         logger.info(
             "Payment retry succeeded",
@@ -587,52 +584,53 @@ def retry_payment_deduction(self, chat_id: str):
             attempt=self.request.retries + 1
         )
         
-    except Exception as e:
-        from ..error_handlers import InsufficientCreditsException
+    except InsufficientCreditsException:
+        # Still insufficient, retry later
+        logger.warning(
+            "Payment retry failed - insufficient balance",
+            extra={"extra_data": {
+                "chat_id": chat_id,
+                "attempt": self.request.retries + 1
+            }}
+        )
         
-        if isinstance(e, InsufficientCreditsException):
-            # Still insufficient, retry later
-            logger.warning(
-                "Payment retry failed - insufficient balance",
+        if self.request.retries < self.max_retries:
+            raise self.retry(countdown=300)  # 5 minutes
+        else:
+            # Max retries reached (24 hours)
+            logger.critical(
+                "Payment permanently failed after 24 hours",
                 extra={"extra_data": {
                     "chat_id": chat_id,
-                    "attempt": self.request.retries + 1
+                    "max_retries": self.max_retries
                 }}
             )
             
-            if self.request.retries < self.max_retries:
-                raise self.retry(exc=e, countdown=300)  # 5 minutes
-            else:
-                # Max retries reached (24 hours)
-                logger.critical(
-                    "Payment permanently failed after 24 hours",
-                    extra={"extra_data": {
-                        "chat_id": chat_id,
-                        "max_retries": self.max_retries
-                    }}
-                )
-                
-                log_business_event(
-                    "payment_permanently_failed",
-                    chat_id=chat_id,
-                    reason="Insufficient balance after 24 hours"
-                )
-        else:
-            logger.error(
-                "Payment retry error",
-                extra={"extra_data": {
-                    "chat_id": chat_id,
-                    "error": str(e)
-                }},
-                exc_info=True
+            log_business_event(
+                "payment_permanently_failed",
+                chat_id=chat_id,
+                reason="Insufficient balance after 24 hours"
             )
-            raise self.retry(exc=e, countdown=300)
-
+    
+    except Exception as e:
+        logger.error(
+            "Payment retry error",
+            extra={"extra_data": {
+                "chat_id": chat_id,
+                "error": str(e)
+            }},
+            exc_info=True
+        )
+        # For any other unexpected error, retry with backoff
+        raise self.retry(exc=e, countdown=300)
 
 # ============================================================================
 # CLEANUP TASKS
 # ============================================================================
-
+# Why it fails even if not "long idle"?
+# Every Celery worker uses NullPool → new DB connection every task
+# Neon serverless still takes 4–12 seconds to accept a fresh TCP+SSL connection
+# Your task starts → spends 6–9s just connecting → then hits soft limit 10s → killed before even running the query
 @celery_app.task(name="cleanup_expired_reservations")
 def cleanup_expired_reservations():
     """
@@ -643,13 +641,13 @@ def cleanup_expired_reservations():
     from datetime import datetime
     
     logger.info("Starting cleanup of expired reservations")
-    
+
     with get_db_session() as db:
         try:
             expired_chats = db.query(Chat).filter(
                 Chat.reserved_coins > 0,
                 Chat.reservation_expires_at < datetime.now(timezone.utc)
-            ).all()
+            ).limit(100).all()  # ✅ ADD: Process in batches
             
             if not expired_chats:
                 logger.debug("No expired reservations found")
@@ -691,6 +689,11 @@ def cleanup_expired_reservations():
                 exc_info=True
             )
             db.rollback()
+        
+        finally:
+            # ✅ ADD: Always cleanup
+            db.close()
+            # task_engine.dispose()
 
 
 @celery_app.task(name="retry_failed_insight")

@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.pool import NullPool, QueuePool
+from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
@@ -50,24 +51,22 @@ else:
     engine = create_engine(
         settings.DATABASE_URL,
         poolclass=QueuePool,
-        pool_pre_ping=True,       # Test connections before using
-        # pool_size=10,              # Base pool size (increased from 5)
-        # max_overflow=20,           # Extra connections when needed (increased from 10)
-        pool_size=1,              # REDUCED to 3
-        max_overflow=2,           # REDUCED to 5
-        pool_timeout=30,           # Wait 30s for a connection
-        pool_recycle=3600,         # Recycle connections after 1 hour
+        pool_pre_ping=True,
+        pool_size=10,               # Increased from 2
+        max_overflow=5,             # Allow overflow connections
+        pool_timeout=10,            # Fail faster if no connections available
+        pool_recycle=3600,          # Increased from 280 - recycle hourly
         echo=False,                # Set to True for SQL debugging
-        # echo_pool=True,          # Uncomment to debug pool behavior
+        echo_pool=True,          # Uncomment to debug pool behavior
     )
     logger.info(
         "Database engine configured for API",
         extra={"extra_data": {
             "pool_type": "QueuePool",
-            "pool_size": 3,
+            "pool_size": 10,
             "max_overflow": 5,
-            # "total_max_connections": 30
-            "total_max_connections":  8  # 3 + 5
+            "total_max_connections": 15,
+            "pool_recycle_seconds": 3600
         }}
     )
 
@@ -129,21 +128,35 @@ def _make_async_url(sync_url: str) -> str:
 
 ASYNC_DATABASE_URL = getattr(settings, "DATABASE_ASYNC_URL", None) or _make_async_url(settings.DATABASE_URL)
 
-# Create async engine
+# ============================================================================
+# ASYNC ENGINE CONFIGURATION (FastAPI ONLY)
+# ============================================================================
+# IMPORTANT: This engine is ONLY for FastAPI endpoints (async/await)
+# Celery workers use the sync engine above with NullPool
+# Keeping them separate prevents connection pool conflicts across
+# different execution contexts (async event loop vs. worker processes)
+#
+# Migration Strategy:
+# - FastAPI endpoints should use get_async_db() → async_engine
+# - Celery workers use get_db() → engine (sync) with NullPool
+# - CPU-intensive work in FastAPI uses ThreadPoolExecutor
+#
 async_engine = create_async_engine(
     ASYNC_DATABASE_URL,
     pool_pre_ping=True,
-    # pool_size=10,              # Match sync pool size
-    # max_overflow=20,           # Match sync overflow
-    pool_size=2,              # REDUCED to 2
-    max_overflow=3,           # REDUCED to 3
-    pool_timeout=30,
-    pool_recycle=3600,         # Recycle connections after 1 hour
-    echo=False,
-    # Add this to disable prepared statement caching
+    pool_size=10,               # Match sync engine pool_size for consistency
+    max_overflow=5,             # Match sync engine max_overflow
+    pool_timeout=10,            # Match sync engine pool_timeout
+    pool_recycle=3600,          # Match sync engine pool_recycle
+    echo=False,                 # Set to True for SQL debugging
     connect_args={
-        "statement_cache_size": 0,  # Disable statement caching
-        "prepared_statement_cache_size": 0  # Disable prepared statement cache
+        "statement_cache_size": 20,      # Enable statement caching
+        "prepared_statement_cache_size": 10,  # Enable prepared statements
+        "command_timeout": 60,
+        "server_settings": {
+            "jit": "off",
+            "default_transaction_isolation": "repeatable read"  # Prevent phantom reads
+        }
     }
 )
 
@@ -154,10 +167,13 @@ async_session = async_sessionmaker(
 )
 
 logger.info(
-    "Async database engine configured",
+    "Async database engine configured (for FastAPI endpoints)",
     extra={"extra_data": {
+        "pool_type": "AsyncQueuePool",
         "pool_size": 10,
-        "max_overflow": 20
+        "max_overflow": 5,
+        "pool_timeout": 10,
+        "context": "FastAPI only - use get_async_db() dependency"
     }}
 )
 
@@ -254,7 +270,11 @@ def get_db(max_retries: int = 3) -> Generator[Session, None, None]:
 async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Async DB session dependency for async FastAPI endpoints.
-    
+
+    Automatically handles:
+    - Transaction rollback on exceptions
+    - Session cleanup
+
     Usage:
         @app.get("/endpoint")
         async def endpoint(db: AsyncSession = Depends(get_async_db)):
@@ -273,6 +293,40 @@ async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
             raise
         finally:
             await session.close()
+
+
+@asynccontextmanager
+async def get_async_db_transaction():
+    """
+    Async context manager for explicit transaction control.
+
+    Automatically commits on success, rolls back on exception.
+    Use when you need explicit transaction boundaries.
+
+    Usage:
+        async with get_async_db_transaction() as db:
+            # Perform database operations
+            db.add(record)
+            # Auto-commits on success
+            # Auto-rolls back on exception
+
+    Returns:
+        AsyncSession: Database session with transaction management
+    """
+    async with async_session() as db:
+        try:
+            yield db
+            await db.commit()
+        except Exception as e:
+            await db.rollback()
+            logger.error(
+                "Transaction rolled back due to exception",
+                extra={"extra_data": {"error": str(e)}},
+                exc_info=True
+            )
+            raise
+        finally:
+            await db.close()
 
 
 # ============================================================================

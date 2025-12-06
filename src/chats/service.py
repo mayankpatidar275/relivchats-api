@@ -1,6 +1,5 @@
 import os
 import json
-from sqlalchemy import select
 from uuid import UUID
 import uuid
 import zipfile
@@ -8,7 +7,9 @@ from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any
 from sqlalchemy.sql import func
 
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 import whatstk
 from fastapi import HTTPException, status
@@ -21,7 +22,7 @@ import pandas as pd
 from nltk.corpus import stopwords
 import nltk
 
-from src.rag.models import AIConversation, AIMessage, InsightType, CategoryInsightType, Insight
+from src.rag.models import AIConversation, Insight
 from src.logging_config import get_logger
 from src.error_handlers import (
     DatabaseException,
@@ -59,13 +60,13 @@ CONFIG = {
 # CORE CRUD OPERATIONS
 # ============================================================================
 
-def create_chat(db: Session, user_id: str, filename: str, category_id: Optional[str] = None):
+async def create_chat(db: AsyncSession, user_id: str, filename: str, category_id: Optional[str] = None):
     """Create a new chat record"""
-    
+
     new_chat_id = str(uuid.uuid4())
-    
+
     logger.debug(
-        f"Creating new chat record",
+        "Creating new chat record",
         extra={
             "user_id": user_id,
             "extra_data": {
@@ -75,19 +76,19 @@ def create_chat(db: Session, user_id: str, filename: str, category_id: Optional[
             }
         }
     )
-    
+
     try:
         db_chat = models.Chat(
-            id=new_chat_id, 
+            id=new_chat_id,
             user_id=user_id,
             title=filename,
             category_id=category_id if category_id else None,
             status="processing"
         )
         db.add(db_chat)
-        db.commit()
-        db.refresh(db_chat)
-        
+        await db.commit()
+        await db.refresh(db_chat)
+
         logger.info(
             f"Chat record created: {new_chat_id}",
             extra={
@@ -98,11 +99,11 @@ def create_chat(db: Session, user_id: str, filename: str, category_id: Optional[
                 }
             }
         )
-        
+
         return db_chat
-    
+
     except SQLAlchemyError as e:
-        db.rollback()
+        await db.rollback()
         logger.error(
             f"Failed to create chat record: {e}",
             extra={
@@ -114,22 +115,21 @@ def create_chat(db: Session, user_id: str, filename: str, category_id: Optional[
         raise DatabaseException("Failed to create chat record", original_error=e)
 
 
-def get_chat_by_id(db: Session, chat_id: UUID):
-    """Get chat by ID with all relationships loaded"""
-    
-    logger.debug(f"Fetching chat by ID: {chat_id}")
-    
+def _get_chat_by_id_sync(db: Session, chat_id: UUID):
+    """Sync version: Get chat by ID with all relationships loaded"""
+    logger.debug(f"Fetching chat by ID (sync): {chat_id}")
+
     try:
         with track_operation("get_chat_by_id", chat_id=str(chat_id)):
-            chat = db.query(models.Chat)\
+            stmt = select(models.Chat)\
                 .options(
-                    joinedload(models.Chat.category),
-                    joinedload(models.Chat.insights).joinedload(Insight.insight_type)
-                    # joinedload(models.Chat.messages)
+                    selectinload(models.Chat.category),
+                    selectinload(models.Chat.insights).selectinload(Insight.insight_type)
                 )\
-                .filter(models.Chat.id == chat_id)\
-                .first()
-        
+                .filter(models.Chat.id == chat_id)
+            result = db.execute(stmt)
+            chat = result.scalar_one_or_none()
+
         if chat:
             logger.debug(
                 f"Chat found: {chat_id}",
@@ -143,9 +143,9 @@ def get_chat_by_id(db: Session, chat_id: UUID):
             )
         else:
             logger.debug(f"Chat not found: {chat_id}")
-        
+
         return chat
-    
+
     except SQLAlchemyError as e:
         logger.error(
             f"Database error fetching chat: {e}",
@@ -155,29 +155,72 @@ def get_chat_by_id(db: Session, chat_id: UUID):
         raise DatabaseException("Failed to fetch chat", original_error=e)
 
 
-def get_user_chats(db: Session, user_id: str):
+async def get_chat_by_id(db: AsyncSession, chat_id: UUID):
+    """Async version: Get chat by ID with all relationships loaded"""
+
+    logger.debug(f"Fetching chat by ID: {chat_id}")
+
+    try:
+        with track_operation("get_chat_by_id", chat_id=str(chat_id)):
+            stmt = select(models.Chat)\
+                .options(
+                    selectinload(models.Chat.category),
+                    selectinload(models.Chat.insights).selectinload(Insight.insight_type)
+                    # selectinload(models.Chat.messages)
+                )\
+                .filter(models.Chat.id == chat_id)
+            result = await db.execute(stmt)
+            chat = result.scalar_one_or_none()
+
+        if chat:
+            logger.debug(
+                f"Chat found: {chat_id}",
+                extra={
+                    "extra_data": {
+                        "chat_id": str(chat_id),
+                        "status": chat.status
+                        # message_count removed - would cause lazy load in async context
+                    }
+                }
+            )
+        else:
+            logger.debug(f"Chat not found: {chat_id}")
+
+        return chat
+
+    except SQLAlchemyError as e:
+        logger.error(
+            f"Database error fetching chat: {e}",
+            extra={"extra_data": {"chat_id": str(chat_id)}},
+            exc_info=True
+        )
+        raise DatabaseException("Failed to fetch chat", original_error=e)
+
+
+async def get_user_chats(db: AsyncSession, user_id: str):
     """Return completed, non-deleted chats for a user with relationships eager-loaded"""
-    
+
     logger.debug(
         "Fetching user chats",
         extra={"user_id": user_id}
     )
-    
+
     try:
         with track_operation("get_user_chats", user_id=user_id):
-            chats = db.query(models.Chat)\
+            stmt = select(models.Chat)\
                 .options(
-                    joinedload(models.Chat.category),
-                    joinedload(models.Chat.insights).joinedload(Insight.insight_type),
-                    # REMOVED: joinedload(models.Chat.messages)  ← Don't load messages here
+                    selectinload(models.Chat.category),
+                    selectinload(models.Chat.insights).selectinload(Insight.insight_type),
+                    # REMOVED: selectinload(models.Chat.messages)  ← Don't load messages here
                 )\
                 .filter(
                     models.Chat.user_id == user_id,
-                    models.Chat.is_deleted == False,
+                    ~models.Chat.is_deleted,
                     models.Chat.status == "completed"
-                )\
-                .all()
-        
+                )
+            result = await db.execute(stmt)
+            chats = result.scalars().all()
+
         logger.debug(
             f"Found {len(chats)} chats for user",
             extra={
@@ -185,9 +228,9 @@ def get_user_chats(db: Session, user_id: str):
                 "extra_data": {"chat_count": len(chats)}
             }
         )
-        
+
         return chats
-    
+
     except SQLAlchemyError as e:
         logger.error(
             f"Failed to fetch user chats: {e}",
@@ -197,9 +240,9 @@ def get_user_chats(db: Session, user_id: str):
         raise DatabaseException("Failed to fetch user chats", original_error=e)
 
 
-def get_chat_messages(db: Session, chat_id: UUID, user_id: str):
+async def get_chat_messages(db: AsyncSession, chat_id: UUID, user_id: str):
     """Get all messages for a chat with authorization check"""
-    
+
     logger.debug(
         "Fetching chat messages",
         extra={
@@ -207,22 +250,21 @@ def get_chat_messages(db: Session, chat_id: UUID, user_id: str):
             "extra_data": {"chat_id": str(chat_id)}
         }
     )
-    
+
     try:
         with track_operation("get_chat_messages", chat_id=str(chat_id)):
-            messages = (
-                db.query(models.Message)
-                .join(models.Chat)
+            stmt = select(models.Message)\
+                .join(models.Chat)\
                 .filter(
                     models.Message.chat_id == chat_id,
                     models.Chat.user_id == user_id
                 )
-                .all()
-            )
-        
+            result = await db.execute(stmt)
+            messages = result.scalars().all()
+
         if not messages:
             logger.warning(
-                f"No messages found or unauthorized access",
+                "No messages found or unauthorized access",
                 extra={
                     "user_id": user_id,
                     "extra_data": {"chat_id": str(chat_id)}
@@ -232,7 +274,7 @@ def get_chat_messages(db: Session, chat_id: UUID, user_id: str):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have access to this chat."
             )
-        
+
         logger.debug(
             f"Retrieved {len(messages)} messages",
             extra={
@@ -243,9 +285,9 @@ def get_chat_messages(db: Session, chat_id: UUID, user_id: str):
                 }
             }
         )
-        
+
         return messages
-    
+
     except HTTPException:
         raise
     except SQLAlchemyError as e:
@@ -260,9 +302,9 @@ def get_chat_messages(db: Session, chat_id: UUID, user_id: str):
         raise DatabaseException("Failed to fetch messages", original_error=e)
 
 
-def update_user_display_name(db: Session, chat_id: str, user_id: str, display_name: str):
+async def update_user_display_name(db: AsyncSession, chat_id: str, user_id: str, display_name: str):
     """Update user's display name for a chat"""
-    
+
     logger.debug(
         "Updating display name",
         extra={
@@ -273,18 +315,20 @@ def update_user_display_name(db: Session, chat_id: str, user_id: str, display_na
             }
         }
     )
-    
+
     try:
-        chat = db.query(models.Chat).filter(
-            models.Chat.id == chat_id, 
+        stmt = select(models.Chat).filter(
+            models.Chat.id == chat_id,
             models.Chat.user_id == user_id
-        ).first()
-        
+        )
+        result = await db.execute(stmt)
+        chat = result.scalar_one_or_none()
+
         if chat:
             chat.user_display_name = display_name
-            db.commit()
-            db.refresh(chat)
-            
+            await db.commit()
+            await db.refresh(chat)
+
             logger.info(
                 f"Display name updated: {chat_id}",
                 extra={
@@ -300,11 +344,11 @@ def update_user_display_name(db: Session, chat_id: str, user_id: str, display_na
                 f"Chat not found for display name update: {chat_id}",
                 extra={"user_id": user_id}
             )
-        
+
         return chat
-    
+
     except SQLAlchemyError as e:
-        db.rollback()
+        await db.rollback()
         logger.error(
             f"Failed to update display name: {e}",
             extra={
@@ -316,42 +360,42 @@ def update_user_display_name(db: Session, chat_id: str, user_id: str, display_na
         raise DatabaseException("Failed to update display name", original_error=e)
 
 
-def delete_chat(db: Session, chat_id: str):
-    """Permanently delete chat and all related data (messages, chunks, vectors)"""
-    
+def _delete_chat_sync(db: Session, chat_id: str):
+    """Sync version: Permanently delete chat and all related data (messages, chunks, vectors)"""
+
     logger.info(
-        f"Starting permanent chat deletion: {chat_id}",
+        f"Starting permanent chat deletion (sync): {chat_id}",
         extra={"extra_data": {"chat_id": chat_id}}
     )
-    
+
     try:
-        chat = get_chat_by_id(db, chat_id)
+        chat = _get_chat_by_id_sync(db, chat_id)
         if not chat:
             logger.warning(f"Chat not found for deletion: {chat_id}")
             return False
-        
+
         # Store metadata before deletion for logging
         message_count = len(chat.messages) if chat.messages else 0
-        
+
         # Clean up vector data first
         try:
             from ..vector.service import vector_service
-            
+
             with track_operation("cleanup_vector_data", chat_id=chat_id):
                 vector_service.cleanup_failed_indexing(db, chat_id)
-            
+
             logger.debug(f"Vector data cleaned up: {chat_id}")
-        
+
         except Exception as e:
             logger.warning(
                 f"Failed to cleanup vector data (continuing with deletion): {e}",
                 extra={"extra_data": {"chat_id": chat_id}}
             )
-        
+
         # Delete chat (cascade will delete messages and chunks)
         db.delete(chat)
         db.commit()
-        
+
         logger.info(
             f"Chat permanently deleted: {chat_id}",
             extra={
@@ -361,9 +405,9 @@ def delete_chat(db: Session, chat_id: str):
                 }
             }
         )
-        
+
         return True
-    
+
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(
@@ -374,40 +418,102 @@ def delete_chat(db: Session, chat_id: str):
         return False
 
 
-def soft_delete_chat(db: Session, chat_id: str):
+async def delete_chat(db: AsyncSession, chat_id: str):
+    """Async version: Permanently delete chat and all related data (messages, chunks, vectors)"""
+
+    logger.info(
+        f"Starting permanent chat deletion: {chat_id}",
+        extra={"extra_data": {"chat_id": chat_id}}
+    )
+
+    try:
+        chat = await get_chat_by_id(db, chat_id)
+        if not chat:
+            logger.warning(f"Chat not found for deletion: {chat_id}")
+            return False
+
+        # Store metadata before deletion for logging
+        message_count = len(chat.messages) if chat.messages else 0
+
+        # Clean up vector data first
+        try:
+            from ..vector.service import vector_service
+
+            with track_operation("cleanup_vector_data", chat_id=chat_id):
+                # Note: vector_service.cleanup_failed_indexing needs to be async or run in executor
+                # For now, assuming it will be converted to async as well
+                await vector_service.cleanup_failed_indexing(db, chat_id)
+
+            logger.debug(f"Vector data cleaned up: {chat_id}")
+
+        except Exception as e:
+            logger.warning(
+                f"Failed to cleanup vector data (continuing with deletion): {e}",
+                extra={"extra_data": {"chat_id": chat_id}}
+            )
+
+        # Delete chat (cascade will delete messages and chunks)
+        db.delete(chat)
+        await db.commit()
+
+        logger.info(
+            f"Chat permanently deleted: {chat_id}",
+            extra={
+                "extra_data": {
+                    "chat_id": chat_id,
+                    "message_count": message_count
+                }
+            }
+        )
+
+        return True
+
+    except SQLAlchemyError as e:
+        await db.rollback()
+        logger.error(
+            f"Failed to delete chat: {e}",
+            extra={"extra_data": {"chat_id": chat_id}},
+            exc_info=True
+        )
+        return False
+
+
+async def soft_delete_chat(db: AsyncSession, chat_id: str):
     """Soft delete chat and all related data (messages, chunks, vectors)"""
-    
+
     logger.info(
         f"Starting soft deletion: {chat_id}",
         extra={"extra_data": {"chat_id": chat_id}}
     )
-    
+
     try:
-        chat = get_chat_by_id(db, chat_id)
+        chat = await get_chat_by_id(db, chat_id)
         if not chat:
             logger.warning(f"Chat not found for soft deletion: {chat_id}")
             return None
-        
+
         now = func.now()
-    
+
         # Soft delete chat
         chat.is_deleted = True
         chat.deleted_at = now
-    
-        # Soft delete all user's AI conversations  
-        user_conversations = db.query(AIConversation).filter(
+
+        # Soft delete all user's AI conversations
+        stmt = select(AIConversation).filter(
             AIConversation.chat_id == chat_id,
-            AIConversation.is_deleted == False
-        ).all()
-        
+            ~AIConversation.is_deleted
+        )
+        result = await db.execute(stmt)
+        user_conversations = result.scalars().all()
+
         conversation_count = len(user_conversations)
         for conversation in user_conversations:
             conversation.is_deleted = True
             conversation.deleted_at = now
-        
-        db.commit()
-        db.refresh(chat)
-    
+
+        await db.commit()
+        await db.refresh(chat)
+
         logger.info(
             f"Chat soft deleted successfully: {chat_id}",
             extra={
@@ -417,11 +523,11 @@ def soft_delete_chat(db: Session, chat_id: str):
                 }
             }
         )
-        
+
         return True
 
     except SQLAlchemyError as e:
-        db.rollback()
+        await db.rollback()
         logger.error(
             f"Failed to soft delete chat: {e}",
             extra={"extra_data": {"chat_id": chat_id}},
@@ -481,7 +587,7 @@ def save_messages_to_db(db: Session, chat_id: UUID, whatstk_chat) -> int:
     """Save parsed messages to database and return count"""
     
     logger.debug(
-        f"Saving messages to database",
+        "Saving messages to database",
         extra={"extra_data": {"chat_id": str(chat_id)}}
     )
     
@@ -545,13 +651,13 @@ def process_whatsapp_file(
     error_message = ""
     
     logger.info(
-        f"Starting WhatsApp file processing",
+        "Starting WhatsApp file processing",
         extra={"extra_data": {"chat_id": str(chat_id), "file_path": file_path}}
     )
     
     try:
         # Get the chat record
-        chat = get_chat_by_id(db, chat_id)
+        chat = _get_chat_by_id_sync(db, chat_id)
         if not chat:
             error_message = f"Chat with ID {chat_id} not found"
             logger.error(error_message)
@@ -562,7 +668,7 @@ def process_whatsapp_file(
             whatstk_chat, participants, title, metadata = parse_whatsapp_file(file_path)
         
         logger.info(
-            f"File parsed successfully",
+            "File parsed successfully",
             extra={
                 "extra_data": {
                     "chat_id": str(chat_id),
@@ -588,7 +694,7 @@ def process_whatsapp_file(
         db.refresh(chat)
         
         logger.info(
-            f"Chat processing completed successfully",
+            "Chat processing completed successfully",
             extra={
                 "extra_data": {
                     "chat_id": str(chat_id),
@@ -642,7 +748,7 @@ def process_whatsapp_file(
         
         # Delete the failed chat completely
         try:
-            delete_chat(db, chat_id)
+            _delete_chat_sync(db, chat_id)
             logger.info(
                 f"Failed chat deleted: {chat_id}",
                 extra={"extra_data": {"chat_id": str(chat_id)}}
@@ -735,7 +841,7 @@ def parse_whatsapp_file(file_path: str) -> Tuple[whatstk.WhatsAppChat, List[str]
         with track_operation("compute_metadata"):
             metadata = compute_chat_metadata(chat, participants)
         
-        logger.debug(f"Metadata computed successfully")
+        logger.debug("Metadata computed successfully")
         
         return chat, participants, title, metadata
         
@@ -774,7 +880,7 @@ def get_stopwords() -> set:
     """Get combined English and Hindi stopwords"""
     try:
         english_stopwords = set(stopwords.words('english'))
-    except:
+    except:  # noqa: E722
         logger.warning("Failed to load English stopwords")
         english_stopwords = set()
     

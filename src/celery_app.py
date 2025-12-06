@@ -44,6 +44,12 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,  # Fetch 1 task at a time (better for long tasks)
     # worker_max_tasks_per_child=50,  # Restart worker after 50 tasks (prevent memory leaks)
     worker_max_tasks_per_child=100,  # Restart worker after 100 tasks (prevent memory leaks)
+    worker_log_level=settings.LOG_LEVEL,
+    worker_concurrency=1,
+
+    # Beat config
+    beat_log_level=settings.LOG_LEVEL.upper(),
+    beat_schedule_filename="/tmp/celerybeat-schedule",
 )
 
 # Signals for monitoring

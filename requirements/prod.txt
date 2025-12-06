@@ -19,7 +19,7 @@ google-genai>=0.1.0  # New library
 langchain>=0.1.0
 langchain-google-genai>=0.0.8
 
-celery[redis]==5.5.3
+celery[redis,asyncio]==5.5.3
 redis==5.0.1
 flower==2.0.1  # Celery monitoring UI (optional but recommended)
 

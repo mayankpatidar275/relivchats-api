@@ -5,14 +5,17 @@ Endpoints:
 - POST /rag/generate (legacy single insight generation - consider deprecating)
 """
 
+import asyncio
 from typing import Annotated
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-from ..database import get_db
+from ..database import get_async_db
+from ..chats.models import Chat
 from ..auth.dependencies import get_current_user_id
-from ..chats.service import get_chat_by_id
+from ..chats.service import get_chat_by_id  # Async version for router
 from . import schemas, service
 from .models import InsightStatus
 
@@ -20,68 +23,79 @@ router = APIRouter(prefix="/rag", tags=["rag"])
 
 
 @router.post("/query", response_model=schemas.RAGQueryResponse)
-def query_chat(
+async def query_chat(
     request: schemas.RAGQueryRequest,
     user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     Ask a question about a specific chat using RAG
     This is for conversational Q&A, not insight generation
     """
-    # Verify user owns the chat
-    chat = get_chat_by_id(db, request.chat_id)
+    # Verify user owns the chat using async query
+    result = await db.execute(
+        select(Chat).where(Chat.id == request.chat_id)
+    )
+    chat = result.scalar_one_or_none()
+
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
-    
+
     if chat.user_id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to access this chat")
-    
+
     # Check if chat is ready for search
     if chat.vector_status != "completed":
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail=f"Chat is not ready for search. Current status: {chat.vector_status}"
         )
-    
+
     try:
-        # Perform RAG query
-        response = service.query_chat_with_rag(
-            db=db,
-            chat_id=request.chat_id,
-            question=request.question,
-            user_id=user_id,
-            max_chunks=request.max_chunks
+        # Perform RAG query (run in executor since service is sync)
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            None,
+            service.query_chat_with_rag,
+            db,
+            request.chat_id,
+            request.question,
+            user_id,
+            request.max_chunks
         )
-        
+
         return response
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 
 # DEPRECATED: Use POST /insights/unlock instead
 @router.post("/generate", response_model=schemas.InsightResponse, deprecated=True)
-def generate_insight(
+async def generate_insight(
     request: schemas.GenerateInsightRequest,
     user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_async_db),
     # background_tasks: BackgroundTasks = None
 ):
     """
-    DEPRECATED: Generate single insight synchronously
+    DEPRECATED: Generate single insight asynchronously
     Use POST /insights/unlock for batch generation
-    
+
     This endpoint is kept for backward compatibility
     """
-    # Verify user owns the chat
-    chat = get_chat_by_id(db, UUID(request.chat_id))
+    # Verify user owns the chat using async query
+    result = await db.execute(
+        select(Chat).where(Chat.id == UUID(request.chat_id))
+    )
+    chat = result.scalar_one_or_none()
+
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
-    
+
     if chat.user_id != user_id:
         raise HTTPException(status_code=403, detail="Not authorized to access this chat")
-    
+
     # Check if chat is ready
     if chat.vector_status != "completed":
         raise HTTPException(
@@ -90,34 +104,68 @@ def generate_insight(
         )
     
     try:
-        # Check if insight already exists
-        existing_insight = service.get_insight(db, UUID(request.chat_id), UUID(request.insight_type_id))
+        # Check if insight already exists (run in executor)
+        loop = asyncio.get_event_loop()
+        existing_insight = await loop.run_in_executor(
+            None,
+            service.get_insight,
+            db,
+            UUID(request.chat_id),
+            UUID(request.insight_type_id)
+        )
+
         if existing_insight:
             # If completed, return immediately
             if existing_insight.status == InsightStatus.COMPLETED:
-                return service.create_insight_response(db, existing_insight)            
-            
+                response = await loop.run_in_executor(
+                    None,
+                    service.create_insight_response,
+                    db,
+                    existing_insight
+                )
+                return response
+
             # If already generating, return status
             if existing_insight.status == InsightStatus.GENERATING:
                 raise HTTPException(
                     status_code=409,
                     detail="Insight is already being generated. Please wait."
                 )
-            
+
             # If failed, retry
             if existing_insight.status == InsightStatus.FAILED:
-                insight = service.regenerate_insight(db, existing_insight.id)
-                return service.create_insight_response(db, insight)
-        
+                insight = await loop.run_in_executor(
+                    None,
+                    service.regenerate_insight,
+                    db,
+                    existing_insight.id
+                )
+                response = await loop.run_in_executor(
+                    None,
+                    service.create_insight_response,
+                    db,
+                    insight
+                )
+                return response
+
         # Generate new insight
-        insight = service.generate_insight(
-            db=db,
-            chat_id=UUID(request.chat_id),
-            insight_type_id=UUID(request.insight_type_id)
+        insight = await loop.run_in_executor(
+            None,
+            service.generate_insight,
+            db,
+            UUID(request.chat_id),
+            UUID(request.insight_type_id)
         )
-        
-        return service.create_insight_response(db, insight)
-        
+
+        response = await loop.run_in_executor(
+            None,
+            service.create_insight_response,
+            db,
+            insight
+        )
+
+        return response
+
     except HTTPException:
         raise
     except Exception as e:

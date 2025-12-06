@@ -1,6 +1,5 @@
 # src/config.py 
 
-import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
@@ -19,7 +18,7 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_INSIGHTS: int = 3  # Generate 3 insights in parallel
     # INSIGHT_GENERATION_TIMEOUT: int = 120  # 2 minutes per insight
     # INSIGHT_GENERATION_TIMEOUT: int = 5  # 5 minutes per insight
-    INSIGHT_GENERATION_TIMEOUT: int = 20  # 20 minutes per insight
+    INSIGHT_GENERATION_TIMEOUT: int = 120  # 20 minutes per insight
     RAG_CHUNK_CACHE_TTL: int = 3600  # Cache RAG chunks for 1 hour
     
     # Vector Database Settings
@@ -80,6 +79,21 @@ class Settings(BaseSettings):
     # Performance monitoring thresholds
     SLOW_REQUEST_THRESHOLD_SECONDS: float = 2.0
     SLOW_DATABASE_QUERY_THRESHOLD_MS: int = 1000
+
+    # ========================================================================
+    # DATABASE PERFORMANCE SETTINGS
+    # ========================================================================
+
+    # Connection pooling - optimized for Neon serverless
+    DB_POOL_SIZE: int = 15                  # Persistent connections in pool
+    DB_MAX_OVERFLOW: int = 5                # Additional overflow connections
+    DB_POOL_TIMEOUT: int = 10              # Timeout waiting for a connection
+    DB_POOL_RECYCLE: int = 3600            # Recycle connections every hour
+
+    # Query optimization
+    DB_ECHO_ENABLED: bool = False          # Disable SQL logging in production
+    DB_STATEMENT_CACHE_SIZE: int = 20      # Cache compiled statements
+    DB_PREPARED_STMT_CACHE_SIZE: int = 10  # Cache prepared statements
     
     # ========================================================================
     # ERROR HANDLING

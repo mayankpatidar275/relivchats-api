@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import desc, select, and_
 from sqlalchemy.orm import selectinload
+import time
 from typing import List, Optional
 from uuid import UUID
 import math
@@ -119,7 +120,7 @@ class CreditService:
         query = self.db.query(CreditPackage)
         
         if active_only:
-            query = query.filter(CreditPackage.is_active == True)
+            query = query.filter(CreditPackage.is_active)
         
         return query.order_by(CreditPackage.sort_order).all()
 
@@ -129,6 +130,207 @@ class CreditService:
             CreditPackage.id == package_id
         ).first()
 
+    def charge_reserved_coins_sync(self, chat_id: UUID) -> CreditTransaction:
+        """
+        SYNC version: Charge coins after successful generation
+
+        Used by Celery tasks (sync_generation_service.py)
+        Same logic as async version but for sync context
+        """
+        logger.info(
+            "Charging reserved coins (SYNC)",
+            extra={"extra_data": {"chat_id": str(chat_id)}}
+        )
+
+        try:
+            # Get chat
+            chat = self.db.query(Chat).filter(Chat.id == chat_id).first()
+
+            if not chat:
+                raise NotFoundException("Chat", str(chat_id))
+
+            if chat.reserved_coins == 0:
+                raise AppException(
+                    message="No coins reserved for this chat",
+                    error_code=ErrorCode.VALIDATION_ERROR,
+                    status_code=400
+                )
+
+            # Check if reservation expired
+            if chat.reservation_expires_at and chat.reservation_expires_at < datetime.now(timezone.utc):
+                logger.error(
+                    "Reservation expired, cannot charge",
+                    extra={
+                        "user_id": chat.user_id,
+                        "extra_data": {
+                            "chat_id": str(chat_id),
+                            "expired_at": chat.reservation_expires_at.isoformat()
+                        }
+                    }
+                )
+                raise AppException(
+                    message="Reservation expired",
+                    error_code=ErrorCode.VALIDATION_ERROR,
+                    status_code=400
+                )
+
+            amount = chat.reserved_coins
+            user_id = chat.user_id
+
+            # Deduct coins with row lock (prevent race conditions)
+            user = self.db.query(User).filter(
+                User.user_id == user_id
+            ).with_for_update().first()
+
+            if not user:
+                raise NotFoundException("User", user_id)
+
+            # Check balance
+            if user.credit_balance < amount:
+                logger.critical(
+                    "User spent coins during generation!",
+                    extra={
+                        "user_id": user_id,
+                        "extra_data": {
+                            "chat_id": str(chat_id),
+                            "reserved": amount,
+                            "available": user.credit_balance
+                        }
+                    }
+                )
+
+                # POLICY DECISION: Hide insights until user adds credits
+                chat.insights_generation_status = "payment_failed"
+                self.db.commit()
+
+                # Queue retry task
+                from ..rag.tasks import retry_payment_deduction
+                retry_payment_deduction.apply_async(
+                    args=[str(chat_id)],
+                    countdown=300  # Retry after 5 minutes
+                )
+
+                raise InsufficientCreditsException(
+                    required=amount,
+                    available=user.credit_balance
+                )
+
+            # Deduct coins (atomic)
+            user.credit_balance -= amount
+
+            # Create transaction record
+            transaction = CreditTransaction(
+                user_id=user_id,
+                type=TransactionType.INSIGHT_UNLOCK,
+                amount=-amount,  # Negative for deduction
+                balance_after=user.credit_balance,
+                description=f"Generated {chat.total_insights_requested} insights",
+                chat_id=chat_id,
+                status=TransactionStatus.COMPLETED,
+                metadata={
+                    "chat_id": str(chat_id),
+                    "category_id": str(chat.category_id),
+                    "insights_count": chat.total_insights_requested,
+                    "charged_after_generation": True
+                }
+            )
+
+            # Release reservation
+            chat.reserved_coins = 0
+            chat.reservation_expires_at = None
+            chat.insights_generation_status = "completed"
+
+            self.db.add(transaction)
+            self.db.commit()
+            self.db.refresh(transaction)
+
+            log_business_event(
+                "coins_charged_after_generation",
+                user_id=user_id,
+                chat_id=str(chat_id),
+                amount=amount,
+                transaction_id=str(transaction.id)
+            )
+
+            logger.info(
+                f"Coins charged successfully: {amount}",
+                extra={
+                    "user_id": user_id,
+                    "extra_data": {
+                        "chat_id": str(chat_id),
+                        "transaction_id": str(transaction.id)
+                    }
+                }
+            )
+
+            return transaction
+
+        except (NotFoundException, InsufficientCreditsException, AppException):
+            self.db.rollback()
+            raise
+        except Exception as e:
+            self.db.rollback()
+            logger.error(
+                f"Failed to charge coins: {str(e)}",
+                extra={"extra_data": {"chat_id": str(chat_id)}},
+                exc_info=True
+            )
+            raise DatabaseException(
+                message="Failed to charge coins",
+                original_error=e
+            )
+
+    def release_reservation_sync(self, chat_id: UUID, reason: str = "Generation failed"):
+        """
+        SYNC version: Release coin reservation without charging
+
+        Used by Celery tasks (sync_generation_service.py)
+        Called when generation fails or is cancelled
+        """
+        logger.info(
+            "Releasing coin reservation (SYNC)",
+            extra={"extra_data": {"chat_id": str(chat_id), "reason": reason}}
+        )
+
+        try:
+            chat = self.db.query(Chat).filter(Chat.id == chat_id).first()
+
+            if not chat:
+                return
+
+            if chat.reserved_coins > 0:
+                reserved_amount = chat.reserved_coins
+
+                chat.reserved_coins = 0
+                chat.reservation_expires_at = None
+                chat.insights_generation_status = "failed"
+
+                self.db.commit()
+
+                log_business_event(
+                    "reservation_released",
+                    user_id=chat.user_id,
+                    chat_id=str(chat_id),
+                    amount=reserved_amount,
+                    reason=reason
+                )
+
+                logger.info(
+                    f"Reservation released: {reserved_amount} coins",
+                    extra={
+                        "user_id": chat.user_id,
+                        "extra_data": {"chat_id": str(chat_id)}
+                    }
+                )
+
+        except Exception as e:
+            self.db.rollback()
+            logger.error(
+                f"Failed to release reservation: {str(e)}",
+                extra={"extra_data": {"chat_id": str(chat_id)}},
+                exc_info=True
+            )
+
     # ========================================================================
     # ASYNC METHODS (New - Production Ready)
     # ========================================================================
@@ -136,9 +338,13 @@ class CreditService:
     @classmethod
     async def get_balance_async(cls, db: AsyncSession, user_id: str) -> int:
         """Get user's current credit balance (ASYNC)"""
+        start = time.time()
+        logger.info(f"DB query START")
         result = await db.execute(
             select(User).where(User.user_id == user_id)
         )
+        logger.info(f"DB query DONE in {(time.time()-start)*1000:.1f}ms")
+
         user = result.scalar_one_or_none()
         
         if not user:
@@ -168,7 +374,7 @@ class CreditService:
             CreditTransaction record
         """
         logger.info(
-            f"Processing signup bonus",
+            "Processing signup bonus",
             extra={
                 "user_id": user_id,
                 "extra_data": {"bonus_amount": bonus_amount}

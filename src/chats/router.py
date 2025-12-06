@@ -10,16 +10,19 @@ Endpoints:
 - DELETE /chats/{chat_id}
 """
 
+import asyncio
 import json
-import shutil
 from pathlib import Path
 from typing import Annotated, List, Optional
 from uuid import UUID
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Form
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
-from ..database import get_db
+from ..database import get_async_db, SessionLocal
 from ..config import settings
 from ..auth.dependencies import get_current_user_id
 from ..logging_config import get_logger, log_business_event
@@ -30,8 +33,9 @@ from ..error_handlers import (
     DatabaseException,
     ErrorCode
 )
-from ..monitoring import track_time, track_operation
+from ..monitoring import track_operation
 from . import schemas, service, models
+from ..rag.models import Insight
 
 logger = get_logger(__name__)
 
@@ -42,19 +46,68 @@ if not UPLOAD_FOLDER.exists():
 
 router = APIRouter(prefix="/chats", tags=["chats"])
 
+# Thread pool for CPU-intensive file operations
+file_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="file_io_")
+
+
+async def save_file_async(file_path: Path, file_content: bytes) -> None:
+    """Save file to disk in thread pool (non-blocking)"""
+    loop = asyncio.get_event_loop()
+
+    def save_to_disk():
+        with open(file_path, "wb") as buffer:
+            buffer.write(file_content)
+
+    await loop.run_in_executor(file_executor, save_to_disk)
+
+
+async def delete_file_async(file_path: Path) -> None:
+    """Delete file from disk in thread pool (non-blocking)"""
+    loop = asyncio.get_event_loop()
+
+    def delete_from_disk():
+        if file_path.exists():
+            file_path.unlink()
+
+    await loop.run_in_executor(file_executor, delete_from_disk)
+
+
+def _process_whatsapp_file_sync(chat_id: UUID, file_path: str):
+    """
+    Wrapper for CPU-intensive WhatsApp file processing.
+    Creates its own sync database session.
+    """
+    db = SessionLocal()
+    try:
+        return service.process_whatsapp_file(chat_id, file_path, db)
+    finally:
+        db.close()
+
+
+def _delete_chat_background(chat_id: str):
+    """
+    Background task wrapper for deleting a chat.
+    Creates its own sync database session.
+    """
+    db = SessionLocal()
+    try:
+        service._delete_chat_sync(db, chat_id)
+    finally:
+        db.close()
+
 
 # ============================================================================
 # UPLOAD CHAT
 # ============================================================================
 
 @router.post("/upload", response_model=schemas.ChatUploadResponse)
-def upload_whatsapp_file(
+async def upload_whatsapp_file(
     file: Annotated[UploadFile, File(...)],
     user_id: Annotated[str, Depends(get_current_user_id)],
     category_id: Optional[str] = Form(None),
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
-    """Upload and process WhatsApp chat file synchronously"""
+    """Upload and process WhatsApp chat file asynchronously with thread-based file I/O"""
     
     logger.info(
         "Chat upload initiated",
@@ -84,7 +137,7 @@ def upload_whatsapp_file(
             }
         )
         raise FileProcessingException(
-            f"Invalid file type. Only .txt or .zip files are allowed.",
+            "Invalid file type. Only .txt or .zip files are allowed.",
             error_code=ErrorCode.INVALID_FILE_FORMAT
         )
 
@@ -106,20 +159,21 @@ def upload_whatsapp_file(
             error_code=ErrorCode.FILE_TOO_LARGE
         )
 
-    # 2. Save the file to a temporary location
+    # 2. Save the file to a temporary location (in thread pool)
     file_path = None
     try:
         file_path = UPLOAD_FOLDER / file.filename
-        
+        file_content = await file.read()  # Read file content asynchronously
+
         with track_operation("save_uploaded_file", filename=file.filename):
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-        
+            # Run file I/O in thread pool to not block event loop
+            await save_file_async(file_path, file_content)
+
         logger.debug(
             f"File saved to temporary location: {file_path}",
             extra={"user_id": user_id, "extra_data": {"file_path": str(file_path)}}
         )
-    
+
     except Exception as e:
         logger.error(
             f"Failed to save uploaded file: {e}",
@@ -136,13 +190,14 @@ def upload_whatsapp_file(
 
     try:
         # 3. Create a chat entry in the database with 'processing' status
-        db_chat = service.create_chat(
-            db, 
-            user_id=user_id, 
-            filename=file.filename,
-            category_id=category_id
+        # Note: service.create_chat is now async, call directly
+        db_chat = await service.create_chat(
+            db,
+            user_id,
+            file.filename,
+            category_id
         )
-        
+
         logger.info(
             f"Chat record created with ID: {db_chat.id}",
             extra={
@@ -153,12 +208,15 @@ def upload_whatsapp_file(
                 }
             }
         )
-        
-        # 4. Process the file synchronously
-        processed_chat = service.process_whatsapp_file(
-            chat_id=db_chat.id,
-            file_path=str(file_path),
-            db=db
+
+        # 4. Process the file asynchronously (CPU-intensive parsing in thread pool)
+        # This creates its own sync session internally
+        loop = asyncio.get_event_loop()
+        processed_chat = await loop.run_in_executor(
+            None,
+            _process_whatsapp_file_sync,
+            db_chat.id,
+            str(file_path)
         )
         
         # 5. Log successful processing as business event
@@ -191,7 +249,7 @@ def upload_whatsapp_file(
     except FileProcessingException:
         # Re-raise our custom exceptions (already logged in service)
         raise
-    
+
     except Exception as e:
         logger.error(
             f"Unexpected error during chat processing: {e}",
@@ -205,11 +263,11 @@ def upload_whatsapp_file(
             },
             exc_info=True
         )
-        
+
         # Clean up the chat if it was created
         if 'db_chat' in locals():
             try:
-                service.delete_chat(db, db_chat.id)
+                await service.delete_chat(db, db_chat.id)
                 logger.info(
                     f"Cleaned up failed chat: {db_chat.id}",
                     extra={"user_id": user_id}
@@ -220,14 +278,14 @@ def upload_whatsapp_file(
                     extra={"user_id": user_id},
                     exc_info=True
                 )
-        
+
         raise FileProcessingException(f"Failed to process file: {str(e)}")
-        
+
     finally:
-        # 7. Clean up the temporary file
-        if file_path and file_path.exists():
+        # 7. Clean up the temporary file asynchronously
+        if file_path:
             try:
-                file_path.unlink()
+                await delete_file_async(file_path)
                 logger.debug(
                     f"Temporary file deleted: {file_path}",
                     extra={"user_id": user_id}
@@ -244,19 +302,28 @@ def upload_whatsapp_file(
 # ============================================================================
 
 @router.get("", response_model=List[schemas.GetChatResponse])
-def list_user_chats(
+async def list_user_chats(
     user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Get all chats for the current user"""
-    
+
     logger.debug(
         "Fetching user chats",
         extra={"user_id": user_id}
     )
-    
+
     try:
-        chats = service.get_user_chats(db, user_id)
+        # Use async query to fetch chats directly with eager loading
+        result = await db.execute(
+            select(models.Chat)
+            .where(models.Chat.user_id == user_id)
+            .options(
+                selectinload(models.Chat.category),
+                selectinload(models.Chat.insights).selectinload(Insight.insight_type)
+            )
+        )
+        chats = result.scalars().all()
         
         # Convert DB chat objects to schema using the classmethod
         response = []
@@ -301,7 +368,7 @@ def list_user_chats(
             extra={"user_id": user_id},
             exc_info=True
         )
-        raise DatabaseException(f"Failed to retrieve chats", original_error=e)
+        raise DatabaseException("Failed to retrieve chats", original_error=e)
 
 
 # ============================================================================
@@ -309,13 +376,13 @@ def list_user_chats(
 # ============================================================================
 
 @router.get("/{chat_id}", response_model=schemas.GetChatResponse)
-def get_chat_details(
+async def get_chat_details(
     chat_id: UUID,
     user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Get detailed information about a specific chat"""
-    
+
     logger.debug(
         "Fetching chat details",
         extra={
@@ -323,9 +390,18 @@ def get_chat_details(
             "extra_data": {"chat_id": str(chat_id)}
         }
     )
-    
+
     try:
-        chat = service.get_chat_by_id(db, chat_id)
+        # Use async query to fetch chat with eager loading to prevent lazy loading in async context
+        result = await db.execute(
+            select(models.Chat)
+            .where(models.Chat.id == chat_id)
+            .options(
+                selectinload(models.Chat.category),
+                selectinload(models.Chat.insights).selectinload(Insight.insight_type)
+            )
+        )
+        chat = result.scalar_one_or_none()
         
         if not chat:
             logger.warning(
@@ -365,7 +441,7 @@ def get_chat_details(
             },
             exc_info=True
         )
-        raise DatabaseException(f"Failed to retrieve chat", original_error=e)
+        raise DatabaseException("Failed to retrieve chat", original_error=e)
 
 
 # ============================================================================
@@ -373,13 +449,13 @@ def get_chat_details(
 # ============================================================================
 
 @router.get("/{chat_id}/messages", response_model=List[schemas.ChatMessagesResponse])
-def get_chat_messages(
+async def get_chat_messages(
     chat_id: UUID,
     user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Get all messages for a chat"""
-    
+
     logger.debug(
         "Fetching chat messages",
         extra={
@@ -387,9 +463,10 @@ def get_chat_messages(
             "extra_data": {"chat_id": str(chat_id)}
         }
     )
-    
+
     try:
-        messages = service.get_chat_messages(db, chat_id, user_id)
+        # Get chat messages (async service call)
+        messages = await service.get_chat_messages(db, chat_id, user_id)
         
         logger.info(
             f"Retrieved {len(messages)} messages",
@@ -422,7 +499,7 @@ def get_chat_messages(
             },
             exc_info=True
         )
-        raise DatabaseException(f"Failed to retrieve messages", original_error=e)
+        raise DatabaseException("Failed to retrieve messages", original_error=e)
 
 
 # ============================================================================
@@ -430,13 +507,13 @@ def get_chat_messages(
 # ============================================================================
 
 @router.get("/{chat_id}/vector-status", response_model=schemas.VectorStatusResponse)
-def get_chat_vector_status(
+async def get_chat_vector_status(
     chat_id: str,
     user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Get vector indexing status for a chat"""
-    
+
     logger.debug(
         "Checking vector status",
         extra={
@@ -444,9 +521,13 @@ def get_chat_vector_status(
             "extra_data": {"chat_id": chat_id}
         }
     )
-    
+
     try:
-        chat = service.get_chat_by_id(db, chat_id)
+        # Use async query to fetch chat
+        result = await db.execute(
+            select(models.Chat).where(models.Chat.id == chat_id)
+        )
+        chat = result.scalar_one_or_none()
         
         if not chat:
             logger.warning(
@@ -494,7 +575,7 @@ def get_chat_vector_status(
             },
             exc_info=True
         )
-        raise DatabaseException(f"Failed to check vector status", original_error=e)
+        raise DatabaseException("Failed to check vector status", original_error=e)
 
 
 # ============================================================================
@@ -502,16 +583,16 @@ def get_chat_vector_status(
 # ============================================================================
 
 @router.delete("/{chat_id}", response_model=schemas.ChatDeleteResponse)
-def soft_delete_chat(
+async def soft_delete_chat(
     chat_id: UUID,
     user_id: Annotated[str, Depends(get_current_user_id)],
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """
     Soft delete chat and schedule permanent cleanup
     """
-    
+
     logger.info(
         "Chat deletion requested",
         extra={
@@ -521,8 +602,11 @@ def soft_delete_chat(
     )
 
     try:
-        # Check if chat exists
-        chat = service.get_chat_by_id(db, chat_id)
+        # Check if chat exists using async query
+        result = await db.execute(
+            select(models.Chat).where(models.Chat.id == chat_id)
+        )
+        chat = result.scalar_one_or_none()
         if not chat:
             logger.warning(
                 f"Delete attempt on non-existent chat: {chat_id}",
@@ -545,7 +629,7 @@ def soft_delete_chat(
             raise ForbiddenException("Not authorized to delete this chat")
         
         # Soft delete chat and related data
-        deleted_chat = service.soft_delete_chat(db, chat.id)
+        deleted_chat = await service.soft_delete_chat(db, chat.id)
         if not deleted_chat:
             logger.error(
                 f"Soft delete operation failed: {chat_id}",
@@ -554,7 +638,7 @@ def soft_delete_chat(
             raise DatabaseException("Failed to delete chat")
 
         # Schedule permanent cleanup in background
-        background_tasks.add_task(service.delete_chat, db, chat.id)
+        background_tasks.add_task(_delete_chat_background, chat.id)
         
         # Log business event
         log_business_event(
@@ -592,7 +676,7 @@ def soft_delete_chat(
             },
             exc_info=True
         )
-        raise DatabaseException(f"Failed to delete chat", original_error=e)
+        raise DatabaseException("Failed to delete chat", original_error=e)
 
 
 # ============================================================================
@@ -600,19 +684,23 @@ def soft_delete_chat(
 # ============================================================================
 
 @router.get("/public/{chat_id}/stats")
-def get_public_chat_stats(
+async def get_public_chat_stats(
     chat_id: UUID,
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Get public chat statistics (no auth required)"""
-    
+
     logger.debug(
         "Fetching public chat stats",
         extra={"extra_data": {"chat_id": str(chat_id)}}
     )
-    
+
     try:
-        chat = db.query(models.Chat).filter(models.Chat.id == chat_id).first()
+        # Use async query to fetch chat
+        result = await db.execute(
+            select(models.Chat).where(models.Chat.id == chat_id)
+        )
+        chat = result.scalar_one_or_none()
         
         if not chat:
             logger.warning(f"Public stats requested for non-existent chat: {chat_id}")
@@ -639,7 +727,7 @@ def get_public_chat_stats(
             extra={"extra_data": {"chat_id": str(chat_id)}},
             exc_info=True
         )
-        raise DatabaseException(f"Failed to retrieve public stats", original_error=e)
+        raise DatabaseException("Failed to retrieve public stats", original_error=e)
 
 
 # ============================================================================
@@ -647,14 +735,14 @@ def get_public_chat_stats(
 # ============================================================================
 
 @router.put("/{chat_id}/display-name", response_model=schemas.ChatUploadResponse)
-def update_user_display_name(
+async def update_user_display_name(
     chat_id: str,
     request: schemas.UpdateUserDisplayName,
     user_id: Annotated[str, Depends(get_current_user_id)],
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Update user's display name for a chat"""
-    
+
     logger.info(
         "Updating user display name",
         extra={
@@ -665,10 +753,14 @@ def update_user_display_name(
             }
         }
     )
-    
+
     try:
-        chat = service.update_user_display_name(
-            db, chat_id, user_id, request.user_display_name
+        # Update user display name (async service call)
+        chat = await service.update_user_display_name(
+            db,
+            chat_id,
+            user_id,
+            request.user_display_name
         )
         
         if not chat:
@@ -696,7 +788,7 @@ def update_user_display_name(
             },
             exc_info=True
         )
-        raise DatabaseException(f"Failed to update display name", original_error=e)
+        raise DatabaseException("Failed to update display name", original_error=e)
 
 
 

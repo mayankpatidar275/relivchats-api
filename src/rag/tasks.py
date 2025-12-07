@@ -27,6 +27,7 @@ from ..database import SessionLocal
 from .sync_generation_service import SyncInsightGenerationOrchestrator
 from .service import generate_insight_with_context
 from .models import Insight, InsightGenerationJob, InsightStatus
+from src.chats.models import Chat
 from ..logging_config import get_logger, log_business_event
 
 logger = get_logger(__name__)
@@ -211,13 +212,18 @@ def orchestrate_insight_generation(self, job_id: str):
                     "No pending insights found for job",
                     extra={"extra_data": {"job_id": job_id}}
                 )
-                
+
                 job.status = "failed"
                 job.error_message = "No pending insights to generate"
+
+                # Update chat status
+                chat = db.query(Chat).filter(Chat.id == job.chat_id).first()
+                if chat:
+                    chat.insights_generation_status = "failed"
+
                 db.commit()
-                
-                # Release reservation (no charge)
-                _release_reservation_sync(db, job.chat_id, "No insights to generate")
+
+                # Note: Coins already deducted, will be auto-refunded via finalization
                 return
             
             logger.info(
@@ -272,16 +278,21 @@ def orchestrate_insight_generation(self, job_id: str):
                 exc_info=True
             )
             
-            # Mark job as failed
+            # Mark job as failed (coins will be auto-refunded)
             try:
                 job = db.query(InsightGenerationJob).filter_by(job_id=job_id).first()
                 if job:
                     job.status = "failed"
                     job.error_message = str(e)[:500]
+
+                    # Update chat status
+                    chat = db.query(Chat).filter(Chat.id == job.chat_id).first()
+                    if chat:
+                        chat.insights_generation_status = "failed"
+
                     db.commit()
-                    
-                    # Release reservation
-                    _release_reservation_sync(db, job.chat_id, f"Orchestration failed: {str(e)}")
+
+                    # Note: Coins already deducted, will be auto-refunded via finalization
             except Exception as cleanup_error:
                 logger.error(
                     "Failed to cleanup after orchestration error",
@@ -540,161 +551,10 @@ def finalize_generation_job(results: List[Dict], job_id: str):
             )
 
 
-# ============================================================================
-# PAYMENT RETRY TASKS
-# ============================================================================
-
-@celery_app.task(name="retry_payment_deduction", bind=True, max_retries=288)  # 24 hours
-def retry_payment_deduction(self, chat_id: str):
-    """
-    Retry charging coins if user's balance was insufficient
-    
-    Runs every 5 minutes for up to 24 hours (288 retries).
-    After max retries, mark as permanently failed.
-    """
-    
-    logger.info(
-        "Retrying payment deduction",
-        extra={"extra_data": {
-            "chat_id": chat_id,
-            "attempt": self.request.retries + 1,
-            "max_retries": self.max_retries
-        }}
-    )
-    
-    from ..credits.service import CreditService
-    from ..error_handlers import InsufficientCreditsException
-    
-    try:
-        # Use the shared sync get_db_session() context manager
-        with get_db_session() as db:
-            CreditService.charge_reserved_coins(
-                db=db,
-                chat_id=UUID(chat_id)
-            )
-        
-        logger.info(
-            "Payment retry succeeded",
-            extra={"extra_data": {"chat_id": chat_id}}
-        )
-        
-        log_business_event(
-            "payment_retry_succeeded",
-            chat_id=chat_id,
-            attempt=self.request.retries + 1
-        )
-        
-    except InsufficientCreditsException:
-        # Still insufficient, retry later
-        logger.warning(
-            "Payment retry failed - insufficient balance",
-            extra={"extra_data": {
-                "chat_id": chat_id,
-                "attempt": self.request.retries + 1
-            }}
-        )
-        
-        if self.request.retries < self.max_retries:
-            raise self.retry(countdown=300)  # 5 minutes
-        else:
-            # Max retries reached (24 hours)
-            logger.critical(
-                "Payment permanently failed after 24 hours",
-                extra={"extra_data": {
-                    "chat_id": chat_id,
-                    "max_retries": self.max_retries
-                }}
-            )
-            
-            log_business_event(
-                "payment_permanently_failed",
-                chat_id=chat_id,
-                reason="Insufficient balance after 24 hours"
-            )
-    
-    except Exception as e:
-        logger.error(
-            "Payment retry error",
-            extra={"extra_data": {
-                "chat_id": chat_id,
-                "error": str(e)
-            }},
-            exc_info=True
-        )
-        # For any other unexpected error, retry with backoff
-        raise self.retry(exc=e, countdown=300)
 
 # ============================================================================
 # CLEANUP TASKS
 # ============================================================================
-# Why it fails even if not "long idle"?
-# Every Celery worker uses NullPool → new DB connection every task
-# Neon serverless still takes 4–12 seconds to accept a fresh TCP+SSL connection
-# Your task starts → spends 6–9s just connecting → then hits soft limit 10s → killed before even running the query
-@celery_app.task(name="cleanup_expired_reservations")
-def cleanup_expired_reservations():
-    """
-    Release reservations that expired (generation took >10 minutes)
-    Run every 5 minutes via Celery Beat
-    """
-    from ..chats.models import Chat
-    from datetime import datetime
-    
-    logger.info("Starting cleanup of expired reservations")
-
-    with get_db_session() as db:
-        try:
-            expired_chats = db.query(Chat).filter(
-                Chat.reserved_coins > 0,
-                Chat.reservation_expires_at < datetime.now(timezone.utc)
-            ).limit(100).all()  # ✅ ADD: Process in batches
-            
-            if not expired_chats:
-                logger.debug("No expired reservations found")
-                return
-            
-            for chat in expired_chats:
-                logger.warning(
-                    "Releasing expired reservation",
-                    extra={"extra_data": {
-                        "chat_id": str(chat.id),
-                        "user_id": str(chat.user_id),
-                        "reserved_coins": chat.reserved_coins,
-                        "expired_at": chat.reservation_expires_at.isoformat()
-                    }}
-                )
-                
-                log_business_event(
-                    "reservation_expired",
-                    user_id=str(chat.user_id),
-                    chat_id=str(chat.id),
-                    reserved_coins=chat.reserved_coins
-                )
-                
-                chat.reserved_coins = 0
-                chat.reservation_expires_at = None
-                chat.insights_generation_status = "timeout"
-            
-            db.commit()
-            
-            logger.info(
-                "Expired reservations cleaned up",
-                extra={"extra_data": {"count": len(expired_chats)}}
-            )
-        
-        except Exception as e:
-            logger.error(
-                "Failed to cleanup expired reservations",
-                extra={"extra_data": {"error": str(e)}},
-                exc_info=True
-            )
-            db.rollback()
-        
-        finally:
-            # ✅ ADD: Always cleanup
-            db.close()
-            # task_engine.dispose()
-
 
 @celery_app.task(name="retry_failed_insight")
 def retry_failed_insight(insight_id: str, job_id: str):
@@ -788,14 +648,14 @@ def retry_failed_insight(insight_id: str, job_id: str):
 def _make_context_serializable(context) -> dict:
     """
     Convert RAG context objects to JSON-serializable dictionaries
-    
+
     Args:
         context: RAG context (dict of lists or single list)
-    
+
     Returns:
         Serializable dictionary
     """
-    
+
     def chunk_to_dict(chunk):
         """Normalize RAG chunk objects to dictionary format"""
         if isinstance(chunk, dict):
@@ -808,7 +668,7 @@ def _make_context_serializable(context) -> dict:
                 "similarity_score": chunk.get("similarity_score") or chunk.get("score") or 0.0,
                 "metadata": chunk.get("metadata") or chunk.get("meta") or {},
             }
-        
+
         # Object with attributes
         return {
             "content": getattr(chunk, "content", None) or getattr(chunk, "text", None) or "",
@@ -818,12 +678,12 @@ def _make_context_serializable(context) -> dict:
             "similarity_score": getattr(chunk, "similarity_score", None) or getattr(chunk, "score", None) or 0.0,
             "metadata": getattr(chunk, "metadata", None) or getattr(chunk, "meta", None) or {},
         }
-    
+
     def make_serializable(obj):
         if isinstance(obj, dict):
             # Dict of lists - process each list
             return {
-                k: [chunk_to_dict(c) for c in v] 
+                k: [chunk_to_dict(c) for c in v]
                 for k, v in obj.items()
             }
         elif isinstance(obj, list):
@@ -832,7 +692,7 @@ def _make_context_serializable(context) -> dict:
         else:
             # Single chunk
             return chunk_to_dict(obj)
-    
+
     try:
         return make_serializable(context)
     except Exception as e:
@@ -844,66 +704,11 @@ def _make_context_serializable(context) -> dict:
         return {}
 
 
-def _release_reservation_sync(db: Session, chat_id: UUID, reason: str):
-    """Synchronous helper to release coin reservation"""
-    from ..chats.models import Chat
-    
-    try:
-        chat = db.query(Chat).filter(Chat.id == chat_id).first()
-        if not chat or chat.reserved_coins == 0:
-            logger.debug(
-                "No reservation to release",
-                extra={"extra_data": {"chat_id": str(chat_id)}}
-            )
-            return
-        
-        reserved_amount = chat.reserved_coins
-        
-        chat.reserved_coins = 0
-        chat.reservation_expires_at = None
-        chat.insights_generation_status = "failed"
-        
-        db.commit()
-        
-        log_business_event(
-            "reservation_released",
-            user_id=str(chat.user_id),
-            chat_id=str(chat_id),
-            amount=reserved_amount,
-            reason=reason
-        )
-        
-        logger.info(
-            "Reservation released",
-            extra={"extra_data": {
-                "chat_id": str(chat_id),
-                "user_id": str(chat.user_id),
-                "amount": reserved_amount,
-                "reason": reason
-            }}
-        )
-    except Exception as e:
-        logger.error(
-            "Failed to release reservation",
-            extra={"extra_data": {
-                "chat_id": str(chat_id),
-                "error": str(e)
-            }},
-            exc_info=True
-        )
-        db.rollback()
-
-
 # ============================================================================
-# CELERY BEAT SCHEDULE
+# CELERY BEAT SCHEDULE (Empty - no periodic tasks needed)
 # ============================================================================
 
-celery_app.conf.beat_schedule = {
-    'cleanup-expired-reservations': {
-        'task': 'cleanup_expired_reservations',
-        'schedule': 300.0,  # Every 5 minutes
-    },
-}
+celery_app.conf.beat_schedule = {}
 
 logger.info(
     "Celery tasks module initialized",

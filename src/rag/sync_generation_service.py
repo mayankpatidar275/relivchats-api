@@ -183,9 +183,9 @@ class SyncInsightGenerationOrchestrator:
         self._update_chat_progress(job.chat_id)
     
     def _finalize_job(self, job: InsightGenerationJob):
-        """Mark job as complete and charge coins if successful"""
+        """Mark job as complete and refund if failed"""
         job.completed_at = datetime.now(timezone.utc)
-        
+
         # Determine final status
         if job.failed_insights == 0:
             job.status = "completed"
@@ -193,15 +193,21 @@ class SyncInsightGenerationOrchestrator:
             job.status = "failed"
         else:
             job.status = "partial_failure"
-        
+
         # Get chat
         chat = self.db.query(Chat).filter(Chat.id == job.chat_id).first()
         if not chat:
             logger.error(f"Chat not found for job {job.job_id}")
             return
-        
+
+        # Update chat status
+        if job.failed_insights == 0:
+            chat.insights_generation_status = "completed"
+        else:
+            chat.insights_generation_status = "failed"
+
         self.db.commit()
-        
+
         logger.info(
             f"Job finalized: {job.job_id}",
             extra={
@@ -214,67 +220,57 @@ class SyncInsightGenerationOrchestrator:
                 }
             }
         )
-        
-        # Charge coins or release reservation
-        if job.failed_insights == 0:
-            self._charge_coins_after_success(job, chat)
-        else:
-            self._release_reservation_after_failure(job, chat)
+
+        # Refund coins if ANY insights failed (immediate deduction pattern)
+        if job.failed_insights > 0:
+            self._refund_coins_after_failure(job, chat)
     
-    def _charge_coins_after_success(self, job: InsightGenerationJob, chat: Chat):
-        """Charge reserved coins after successful generation"""
+    def _refund_coins_after_failure(self, job: InsightGenerationJob, chat: Chat):
+        """Refund coins when generation fails (immediate deduction pattern)"""
         logger.info(
-            f"All insights succeeded, charging {chat.reserved_coins} coins",
+            f"{job.failed_insights} insights failed, refunding coins",
             extra={
                 "user_id": job.user_id,
                 "extra_data": {
                     "job_id": job.job_id,
                     "chat_id": str(job.chat_id),
-                    "reserved_coins": chat.reserved_coins
+                    "failed": job.failed_insights,
+                    "total": job.total_insights
                 }
             }
         )
-        
-        from ..credits.service import CreditService
 
-        # Use sync version of CreditService (no asyncio.run overhead)
         try:
-            service = CreditService(self.db)
-            transaction = service.charge_reserved_coins_sync(job.chat_id)
-            logger.info(f"✓ Coins charged: {transaction.amount}")
+            # Refund the transaction using async-compatible approach
+            import asyncio
+            from ..credits.service import CreditService
+            from ..database import get_async_db_transaction
+
+            async def do_refund():
+                async with get_async_db_transaction() as async_db:
+                    await CreditService.refund_transaction_async(
+                        db=async_db,
+                        chat_id=job.chat_id,
+                        reason=f"{job.failed_insights}/{job.total_insights} insights failed"
+                    )
+
+            # Run async refund in event loop
+            asyncio.run(do_refund())
+
+            logger.info("✓ Coins refunded successfully")
 
         except Exception as e:
-            logger.error(f"Error charging coins: {e}")
-            # Queue retry
-            from .tasks import retry_payment_deduction
-            retry_payment_deduction.delay(str(job.chat_id))
-    
-    def _release_reservation_after_failure(self, job: InsightGenerationJob, chat: Chat):
-        """Release coin reservation when generation fails"""
-        logger.info(
-            f"{job.failed_insights} insights failed, releasing reservation",
-            extra={
-                "user_id": job.user_id,
-                "extra_data": {
-                    "job_id": job.job_id,
-                    "chat_id": str(job.chat_id),
-                    "reserved_coins": chat.reserved_coins
-                }
-            }
-        )
-        
-        from ..credits.service import CreditService
-
-        # Use sync version of CreditService (no asyncio.run overhead)
-        try:
-            service = CreditService(self.db)
-            service.release_reservation_sync(
-                job.chat_id,
-                reason=f"{job.failed_insights}/{job.total_insights} insights failed"
+            logger.error(
+                f"Failed to refund coins: {e}",
+                extra={
+                    "user_id": job.user_id,
+                    "extra_data": {
+                        "job_id": job.job_id,
+                        "chat_id": str(job.chat_id)
+                    }
+                },
+                exc_info=True
             )
-            logger.info("✓ Reservation released (no charge)")
-        except Exception as e:
-            logger.error(f"Failed to release reservation: {e}")
     
     def _update_chat_progress(self, chat_id: UUID):
         """Update chat's insight counters"""
@@ -306,10 +302,10 @@ class SyncInsightGenerationOrchestrator:
     
     def mark_job_completed(self, job_id: str):
         """
-        Mark job as completed and charge coins if all succeeded
+        Mark job as completed and refund if any failed
         """
         job = self._get_job(job_id)
-        
+
         # Determine final status
         if job.failed_insights == 0:
             job.status = "completed"
@@ -317,23 +313,27 @@ class SyncInsightGenerationOrchestrator:
             job.status = "failed"
         else:
             job.status = "partial_failure"
-        
+
         job.completed_at = datetime.now(timezone.utc)
-        
+
         # Update chat status
         chat = self.db.query(Chat).filter(Chat.id == job.chat_id).first()
         if not chat:
             return
-        
-        self.db.commit()
-        
-        # Charge coins if all succeeded
+
+        # Update chat generation status
         if job.failed_insights == 0:
-            logger.info(f"All insights succeeded, charging {chat.reserved_coins} coins")
-            self._charge_coins_after_success(job, chat)
+            chat.insights_generation_status = "completed"
+            logger.info(f"All insights succeeded, keeping coins deducted")
         else:
-            logger.info(f"{job.failed_insights} insights failed, releasing reservation")
-            self._release_reservation_after_failure(job, chat)
+            chat.insights_generation_status = "failed"
+            logger.info(f"{job.failed_insights} insights failed, refunding coins")
+
+        self.db.commit()
+
+        # Refund coins if any failed
+        if job.failed_insights > 0:
+            self._refund_coins_after_failure(job, chat)
     
     def get_job_status(self, job_id: str) -> Dict:
         """Get current job status for API polling"""

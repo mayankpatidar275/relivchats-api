@@ -20,11 +20,12 @@ from datetime import datetime, timedelta, timezone
 import logging
 
 from .models import (
-    InsightGenerationJob, 
-    Insight, 
+    InsightGenerationJob,
+    Insight,
     InsightType,
     InsightStatus,
-    CategoryInsightType
+    CategoryInsightType,
+    AnalysisCategory
 )
 from ..error_handlers import (
     InsufficientCreditsException
@@ -434,6 +435,13 @@ class InsightGenerationOrchestrator:
         )
         chat = result.scalar_one_or_none()
         
+        # Get category to determine cost
+        result = await self.db.execute(
+            select(AnalysisCategory).where(AnalysisCategory.id == job.category_id)
+        )
+        category = result.scalar_one_or_none()
+        coins_charged = category.credit_cost if category else 0
+
         return {
             "job_id": job.job_id,
             "status": job.status.value,
@@ -444,27 +452,32 @@ class InsightGenerationOrchestrator:
             "started_at": job.started_at,
             "completed_at": job.completed_at,
             "estimated_completion_at": job.estimated_completion_at,
-            "payment_status": await self._get_payment_status(chat),
-            "coins_charged": 0 if chat.reserved_coins > 0 else chat.reserved_coins
+            "payment_status": await self._get_payment_status(chat, job),
+            "coins_charged": coins_charged
         }
     
-    async def _get_payment_status(self, chat: Chat) -> str:
-        """Determine payment status for frontend"""
-        if not chat:
+    async def _get_payment_status(self, chat: Chat, job: InsightGenerationJob) -> str:
+        """
+        Determine payment status for frontend.
+
+        With immediate deduction pattern:
+        - Coins are charged immediately when generation starts
+        - If generation fails, coins are refunded
+        """
+        if not chat or not job:
             return "unknown"
-        
+
         status = chat.insights_generation_status
-        
-        if status == "completed" and chat.reserved_coins == 0:
-            return "charged"
-        elif status == "pending_payment" or (status == "completed" and chat.reserved_coins > 0):
-            return "pending"
-        elif status == "payment_failed":
-            return "insufficient_balance"
-        elif status in ["failed", "timeout"]:
-            return "not_charged"
+
+        # Coins are always charged immediately when generation starts
+        if status == "completed":
+            return "charged"  # Coins were deducted and kept
+        elif status in ["failed", "partial_failure"]:
+            return "refunded"  # Coins were/should be refunded
+        elif status in ["generating", "queued"]:
+            return "charged"  # Coins already deducted upfront
         else:
-            return "pending"
+            return "pending"  # Not yet started
     
     async def get_job_status_async(self, job_id: str) -> Dict:
         """Alias for async method"""

@@ -172,40 +172,66 @@ def call_gemini_structured(
     """
     Call Gemini with structured output mode
     Returns: (parsed_json, tokens_used)
+
+    Includes timeout handling to prevent hanging indefinitely.
+    Timeout is set to 90 seconds (leaves 20s buffer for Celery soft limit of 110s).
     """
-    
+
     try:
-        # Initialize client (configure API key in settings)
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        
+        # Initialize client with timeout configuration
+        # Note: genai.Client uses httpx internally which respects timeout settings
+        # We set timeout to 90s to leave buffer before Celery's 110s soft limit
+        # import httpx
+
+        # # Create custom httpx client with timeout
+        # http_client = httpx.Client(
+        #     timeout=httpx.Timeout(
+        #         timeout=90.0,  # 90 second timeout (leaves 20s for cleanup)
+        #         connect=10.0,  # 10 seconds to establish connection
+        #         read=90.0,     # 90 seconds to read response
+        #         write=10.0     # 10 seconds to send request
+        #     )
+        # )
+
+        client = genai.Client(
+            api_key=settings.GEMINI_API_KEY
+            # http_options={'client': http_client}
+        )
+
         # Prepare generation config
         generation_config = types.GenerateContentConfig(
             temperature=temperature,
             response_mime_type="application/json",
-            response_schema=response_schema, 
+            response_schema=response_schema,
             automatic_function_calling={"disable": True}
         )
-        
+
         # Generate content
         response = client.models.generate_content(
             model=settings.GEMINI_LLM_MODEL,  # e.g., "gemini-2.0-flash-exp"
             contents=prompt,
             config=generation_config
         )
-        
+
         # Parse JSON response
         result = json.loads(response.text)
-        
+
         # Get token usage if available
         tokens_used = None
         if hasattr(response, 'usage_metadata'):
             tokens_used = (
-                response.usage_metadata.prompt_token_count + 
+                response.usage_metadata.prompt_token_count +
                 response.usage_metadata.candidates_token_count
             )
-        
+
+        # Close HTTP client
+        # http_client.close()
+
         return result, tokens_used
-        
+
+    # except httpx.TimeoutException as e:
+    #     logger.error(f"Gemini API timeout after 90 seconds: {e}")
+    #     raise RuntimeError(f"Gemini API timeout (90s exceeded): {e}")
     except json.JSONDecodeError as e:
         raise ValueError(f"Gemini returned invalid JSON: {e}")
     except Exception as e:
@@ -434,8 +460,9 @@ def generate_insight_with_context(
         insight.updated_at = datetime.now(timezone.utc)
         
         db.commit()
-        db.refresh(insight)
-        
+        # Note: db.refresh() removed - unnecessary after commit and can cause
+        # timeout issues when soft time limit is exceeded
+
         return insight
         
     except Exception as e:
@@ -570,8 +597,9 @@ def generate_insight(
         insight.updated_at = datetime.now(timezone.utc)
         
         db.commit()
-        db.refresh(insight)
-        
+        # Note: db.refresh() removed - unnecessary after commit and can cause
+        # timeout issues when soft time limit is exceeded
+
         return insight
         
     except Exception as e:

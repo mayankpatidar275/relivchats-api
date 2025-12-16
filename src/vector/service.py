@@ -168,13 +168,16 @@ class VectorService:
     def create_chat_chunks(self, db: Session, chat_id: UUID) -> bool:
         """
         Create chunks for a chat and store them in vector DB
-        
+
         This is called synchronously during insight unlock if vector_status != "completed"
-        
+
+        IMPORTANT: This method commits multiple times to avoid holding DB connections
+        during long-running external operations (embeddings, Qdrant storage).
+
         Args:
             db: Database session
             chat_id: Chat ID to index
-        
+
         Returns:
             True if successful, False otherwise
         """
@@ -182,63 +185,93 @@ class VectorService:
             "Starting chat indexing",
             extra={"extra_data": {"chat_id": str(chat_id)}}
         )
-        
+
         try:
+            # PHASE 1: Update status and fetch data (short transaction)
+            # ============================================================
+
             # 1. Get chat and validate
             chat = db.query(Chat).filter(Chat.id == chat_id).first()
             if not chat:
                 logger.error(f"Chat not found: {chat_id}")
                 raise ValueError(f"Chat {chat_id} not found")
-            
-            # Update status to indexing
+
+            user_id = chat.user_id
+            platform = chat.platform
+
+            # Update status to indexing and commit immediately
             chat.vector_status = "indexing"
             db.commit()
-            
+
             logger.info(
                 "Chat status updated to indexing",
                 extra={
-                    "user_id": chat.user_id,
+                    "user_id": user_id,
                     "extra_data": {"chat_id": str(chat_id)}
                 }
             )
-            
+
             # 2. Get all messages
             messages = db.query(Message).filter(
                 Message.chat_id == chat_id
             ).order_by(Message.timestamp).all()
-            
+
             if not messages:
                 logger.warning(
                     "No messages found for chat",
                     extra={"extra_data": {"chat_id": str(chat_id)}}
                 )
-                
+
+                # Quick update and return
+                chat = db.query(Chat).filter(Chat.id == chat_id).first()
                 chat.vector_status = "completed"
                 chat.chunk_count = 0
                 chat.indexed_at = datetime.now(timezone.utc)
                 db.commit()
                 return True
-            
+
             logger.info(
                 f"Retrieved {len(messages)} messages for chunking",
                 extra={"extra_data": {"chat_id": str(chat_id), "message_count": len(messages)}}
             )
-            
-            # 3. Create conversation chunks
-            chunks = chunk_chat_messages(messages, platform=chat.platform)
-            
+
+            # Convert messages to dictionaries to avoid detached instance issues
+            # after we close the transaction
+            message_data = [{
+                'id': msg.id,
+                'sender': msg.sender,
+                'content': msg.content,
+                'timestamp': msg.timestamp,
+                'chat_id': msg.chat_id
+            } for msg in messages]
+
+            # Close the transaction - don't hold DB connection during long operations
+            db.commit()
+
+            # PHASE 2: CPU/Network intensive operations (NO DB connection held)
+            # ===================================================================
+
+            # 3. Create conversation chunks (CPU intensive, uses message_data)
+            # Recreate message-like objects for chunking function
+            from types import SimpleNamespace
+            message_objects = [SimpleNamespace(**data) for data in message_data]
+            chunks = chunk_chat_messages(message_objects, platform=platform)
+
             if not chunks:
                 logger.warning("No chunks created")
+
+                # Reopen transaction to update status
+                chat = db.query(Chat).filter(Chat.id == chat_id).first()
                 chat.vector_status = "completed"
                 chat.chunk_count = 0
                 chat.indexed_at = datetime.now(timezone.utc)
                 db.commit()
                 return True
-            
+
             logger.info(
                 f"Created {len(chunks)} chunks",
                 extra={
-                    "user_id": chat.user_id,
+                    "user_id": user_id,
                     "extra_data": {
                         "chat_id": str(chat_id),
                         "chunk_count": len(chunks),
@@ -246,14 +279,14 @@ class VectorService:
                     }
                 }
             )
-            
-            # 4. Generate embeddings for chunks
+
+            # 4. Generate embeddings for chunks (Network intensive - Gemini API)
             chunk_texts = [chunk.chunk_text for chunk in chunks]
             embeddings = self.generate_embeddings_batch(chunk_texts)
-            
+
             if len(embeddings) != len(chunks):
                 raise ValueError(f"Embedding count mismatch: {len(embeddings)} != {len(chunks)}")
-            
+
             # 5. Prepare metadata for Qdrant
             qdrant_metadatas = []
             for chunk in chunks:
@@ -265,23 +298,29 @@ class VectorService:
                     "chunk_text": chunk.chunk_text
                 })
                 qdrant_metadatas.append(metadata)
-            
-            # 6. Store vectors in Qdrant
+
+            # 6. Store vectors in Qdrant (Network intensive)
             logger.info(f"Storing {len(embeddings)} vectors in Qdrant")
             vector_ids = qdrant_store.add_vectors(embeddings, qdrant_metadatas)
-            
+
             logger.info(
                 f"Vectors stored in Qdrant",
                 extra={
-                    "user_id": chat.user_id,
+                    "user_id": user_id,
                     "extra_data": {
                         "chat_id": str(chat_id),
                         "vector_count": len(vector_ids)
                     }
                 }
             )
-            
+
+            # PHASE 3: Save results to database (fresh transaction)
+            # ========================================================
+
             # 7. Store chunk records in PostgreSQL
+            # Get fresh chat instance (previous one may be stale after long operations)
+            db.expire_all()  # Clear session cache
+
             db_chunks = []
             for chunk, vector_id in zip(chunks, vector_ids):
                 db_chunk = MessageChunk(
@@ -294,38 +333,39 @@ class VectorService:
                     token_count=chunk.estimated_tokens
                 )
                 db_chunks.append(db_chunk)
-            
+
             # Bulk insert chunks
             db.bulk_save_objects(db_chunks)
-            
+
             # 8. Update chat status
+            chat = db.query(Chat).filter(Chat.id == chat_id).first()
             chat.vector_status = "completed"
             chat.chunk_count = len(chunks)
             chat.indexed_at = datetime.now(timezone.utc)
             db.commit()
-            
+
             # Log business event
             log_business_event(
                 "chat_indexed",
-                user_id=chat.user_id,
+                user_id=user_id,
                 chat_id=str(chat_id),
                 chunk_count=len(chunks),
-                message_count=len(messages),
-                platform=chat.platform
+                message_count=len(message_data),
+                platform=platform
             )
-            
+
             logger.info(
                 f"✓ Chat indexed successfully",
                 extra={
-                    "user_id": chat.user_id,
+                    "user_id": user_id,
                     "extra_data": {
                         "chat_id": str(chat_id),
                         "chunks": len(chunks),
-                        "messages": len(messages)
+                        "messages": len(message_data)
                     }
                 }
             )
-            
+
             return True
             
         except ValueError as e:

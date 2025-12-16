@@ -12,10 +12,11 @@ Key improvements:
 """
 
 from celery import chord
+from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy.orm import Session
 from uuid import UUID
 import time
-from datetime import timezone
+from datetime import timezone, datetime
 from typing import Dict, List, Optional
 import json
 import redis as redis_lib
@@ -277,13 +278,14 @@ def orchestrate_insight_generation(self, job_id: str):
                 }},
                 exc_info=True
             )
-            
-            # Mark job as failed (coins will be auto-refunded)
+
+            # Mark job as failed and REFUND coins immediately
             try:
                 job = db.query(InsightGenerationJob).filter_by(job_id=job_id).first()
                 if job:
                     job.status = "failed"
                     job.error_message = str(e)[:500]
+                    job.completed_at = datetime.now(timezone.utc)
 
                     # Update chat status
                     chat = db.query(Chat).filter(Chat.id == job.chat_id).first()
@@ -292,7 +294,35 @@ def orchestrate_insight_generation(self, job_id: str):
 
                     db.commit()
 
-                    # Note: Coins already deducted, will be auto-refunded via finalization
+                    # CRITICAL: Refund coins immediately (orchestration failed before generation)
+                    logger.warning(
+                        "Orchestration failed - refunding coins",
+                        extra={"extra_data": {
+                            "job_id": job_id,
+                            "chat_id": str(job.chat_id)
+                        }}
+                    )
+
+                    from ..credits.service import CreditService
+                    credit_service = CreditService(db)
+                    try:
+                        credit_service.refund_transaction(
+                            chat_id=job.chat_id,
+                            reason=f"Insight generation orchestration failed: {str(e)[:100]}"
+                        )
+                        logger.info("✓ Coins refunded after orchestration failure")
+                    except Exception as refund_error:
+                        logger.critical(
+                            "CRITICAL: Failed to refund coins after orchestration failure",
+                            extra={"extra_data": {
+                                "job_id": job_id,
+                                "chat_id": str(job.chat_id),
+                                "error": str(refund_error)
+                            }},
+                            exc_info=True
+                        )
+                        # Don't raise - log for manual intervention
+
             except Exception as cleanup_error:
                 logger.error(
                     "Failed to cleanup after orchestration error",
@@ -302,7 +332,7 @@ def orchestrate_insight_generation(self, job_id: str):
                     }},
                     exc_info=True
                 )
-            
+
             raise
 
 
@@ -321,24 +351,40 @@ def generate_single_insight(
 ):
     """
     Generate a single insight using pre-extracted context
-    
+
     This task runs in parallel (3-4 at a time based on worker concurrency)
     """
-    
+
     logger.info(
         "Starting single insight generation",
         extra={"extra_data": {
             "task_id": self.request.id,
             "insight_id": insight_id,
             "job_id": job_id,
-            "chat_id": chat_id
+            "chat_id": chat_id,
+            "retry_attempt": self.request.retries
         }}
     )
-    
+
     start_time = time.time()
-    
+
     with get_db_session() as db:
         try:
+            # CRITICAL: Mark insight as GENERATING when task starts
+            # This ensures frontend shows correct status during generation
+            insight = db.query(Insight).filter(Insight.id == UUID(insight_id)).first()
+            if insight and insight.status in [InsightStatus.PENDING, InsightStatus.FAILED]:
+                insight.status = InsightStatus.GENERATING
+                insight.error_message = None  # Clear previous errors on retry
+                db.commit()
+                logger.info(
+                    "Insight status updated to GENERATING",
+                    extra={"extra_data": {
+                        "insight_id": insight_id,
+                        "previous_status": "pending" if self.request.retries == 0 else "failed (retry)"
+                    }}
+                )
+
             # Fetch context from Redis
             shared_context = None
             if shared_context_key:
@@ -419,7 +465,53 @@ def generate_single_insight(
                 "tokens_used": insight.tokens_used,
                 "generation_time_ms": generation_time_ms
             }
-            
+
+        except SoftTimeLimitExceeded:
+            # Handle soft timeout gracefully - mark as failed without retry
+            # Timeout usually indicates Gemini API is down/slow - retries won't help
+            error_message = f"Task exceeded soft time limit ({settings.INSIGHT_GENERATION_TIMEOUT - 10}s) - Gemini API may be unavailable"
+            logger.error(
+                "Insight generation hit soft timeout",
+                extra={"extra_data": {
+                    "insight_id": insight_id,
+                    "job_id": job_id,
+                    "timeout_seconds": settings.INSIGHT_GENERATION_TIMEOUT - 10
+                }}
+            )
+
+            # Mark as failed without retry (timeout indicates systemic issue)
+            try:
+                insight = db.query(Insight).filter(Insight.id == UUID(insight_id)).first()
+                if insight:
+                    insight.status = InsightStatus.FAILED
+                    insight.error_message = error_message
+                    db.commit()
+
+                orchestrator = SyncInsightGenerationOrchestrator(db)
+                orchestrator.update_job_progress(
+                    job_id=job_id,
+                    insight_id=UUID(insight_id),
+                    status="failed",
+                    error=error_message
+                )
+            except Exception as update_error:
+                logger.error(
+                    "Failed to update insight timeout status",
+                    extra={"extra_data": {
+                        "insight_id": insight_id,
+                        "error": str(update_error)
+                    }},
+                    exc_info=True
+                )
+                db.rollback()
+
+            # Return failure without retry
+            return {
+                "insight_id": insight_id,
+                "status": "failed",
+                "error": error_message
+            }
+
         except Exception as e:
             error_message = str(e)
             logger.error(
@@ -432,25 +524,26 @@ def generate_single_insight(
                 }},
                 exc_info=True
             )
-            
-            # Mark as failed and update job
+
+            # Check if we should retry
+            will_retry = self.request.retries < self.max_retries
+
+            # Update insight status
             try:
                 insight = db.query(Insight).filter(Insight.id == UUID(insight_id)).first()
                 if insight:
-                    insight.status = InsightStatus.FAILED
-                    insight.error_message = error_message[:500]
+                    if will_retry:
+                        # Keep as GENERATING during retry (user sees "in progress")
+                        insight.status = InsightStatus.GENERATING
+                        insight.error_message = f"Retrying... (attempt {self.request.retries + 1}/{self.max_retries}): {error_message[:200]}"
+                    else:
+                        # Final failure - mark as FAILED
+                        insight.status = InsightStatus.FAILED
+                        insight.error_message = error_message[:500]
                     db.commit()
-                
-                orchestrator = SyncInsightGenerationOrchestrator(db)
-                orchestrator.update_job_progress(
-                    job_id=job_id,
-                    insight_id=UUID(insight_id),
-                    status="failed",
-                    error=error_message
-                )
             except Exception as update_error:
                 logger.error(
-                    "Failed to update insight failure status",
+                    "Failed to update insight status",
                     extra={"extra_data": {
                         "insight_id": insight_id,
                         "error": str(update_error)
@@ -458,21 +551,41 @@ def generate_single_insight(
                     exc_info=True
                 )
                 db.rollback()
-            
-            # Retry logic (Celery will auto-retry based on task config)
-            if self.request.retries < self.max_retries:
-                countdown = 5 * (2 ** self.request.retries)
+
+            # Retry logic with adaptive backoff
+            if will_retry:
+                # Check if error is 503 (Service Unavailable) - needs longer backoff
+                is_503_error = "503" in error_message or "UNAVAILABLE" in error_message or "overloaded" in error_message.lower()
+
+                if is_503_error:
+                    # Longer backoff for 503: 15s, 45s, 135s
+                    countdown = 15 * (3 ** self.request.retries)
+                    logger.info(
+                        "Gemini API overloaded (503), using extended backoff",
+                        extra={"extra_data": {
+                            "insight_id": insight_id,
+                            "attempt": self.request.retries + 1,
+                            "countdown_seconds": countdown
+                        }}
+                    )
+                else:
+                    # Standard exponential backoff: 5s, 10s, 20s
+                    countdown = 5 * (2 ** self.request.retries)
+
                 logger.info(
                     "Retrying insight generation",
                     extra={"extra_data": {
                         "insight_id": insight_id,
                         "attempt": self.request.retries + 1,
                         "max_retries": self.max_retries,
-                        "countdown_seconds": countdown
+                        "countdown_seconds": countdown,
+                        "is_503_error": is_503_error
                     }}
                 )
+                # Don't update job progress yet - wait for retry result
                 raise self.retry(exc=e, countdown=countdown)
-            
+
+            # Final failure - update job progress
             logger.error(
                 "Insight generation failed after max retries",
                 extra={"extra_data": {
@@ -480,7 +593,25 @@ def generate_single_insight(
                     "max_retries": self.max_retries
                 }}
             )
-            
+
+            try:
+                orchestrator = SyncInsightGenerationOrchestrator(db)
+                orchestrator.update_job_progress(
+                    job_id=job_id,
+                    insight_id=UUID(insight_id),
+                    status="failed",
+                    error=error_message
+                )
+            except Exception as job_update_error:
+                logger.error(
+                    "Failed to update job progress after final failure",
+                    extra={"extra_data": {
+                        "insight_id": insight_id,
+                        "error": str(job_update_error)
+                    }},
+                    exc_info=True
+                )
+
             return {
                 "insight_id": insight_id,
                 "status": "failed",
@@ -496,10 +627,11 @@ def generate_single_insight(
 def finalize_generation_job(results: List[Dict], job_id: str):
     """
     Callback after all insights complete
-    
-    CRITICAL: This is where we charge coins (only if all succeeded)
+
+    CRITICAL: This is where coin charging/refunding happens
+    Safety net: If finalization fails, we MUST ensure refund happens
     """
-    
+
     logger.info(
         "Finalizing insight generation job",
         extra={"extra_data": {
@@ -507,22 +639,22 @@ def finalize_generation_job(results: List[Dict], job_id: str):
             "result_count": len(results)
         }}
     )
-    
+
     with get_db_session() as db:
         try:
             orchestrator = SyncInsightGenerationOrchestrator(db)
-            
-            # Mark job as completed (this triggers coin charging logic)
+
+            # Mark job as completed (this triggers coin charging/refund logic)
             orchestrator.mark_job_completed(job_id)
-            
+
             job_status = orchestrator.get_job_status(job_id)
-            
+
             completed = job_status['completed_insights']
             failed = job_status['failed_insights']
             total = job_status['total_insights']
-            
+
             logger.info(
-                "Job finalized",
+                "Job finalized successfully",
                 extra={"extra_data": {
                     "job_id": job_id,
                     "completed_insights": completed,
@@ -531,7 +663,7 @@ def finalize_generation_job(results: List[Dict], job_id: str):
                     "success_rate": f"{(completed/total*100):.1f}%" if total > 0 else "0%"
                 }}
             )
-            
+
             log_business_event(
                 "insight_generation_completed",
                 job_id=job_id,
@@ -539,7 +671,7 @@ def finalize_generation_job(results: List[Dict], job_id: str):
                 failed_insights=failed,
                 total_insights=total
             )
-            
+
         except Exception as e:
             logger.error(
                 "Error finalizing job",
@@ -549,6 +681,63 @@ def finalize_generation_job(results: List[Dict], job_id: str):
                 }},
                 exc_info=True
             )
+
+            # CRITICAL SAFETY NET: If finalization fails, ensure refund happens
+            # This prevents money being charged when insights aren't delivered
+            try:
+                job = db.query(InsightGenerationJob).filter_by(job_id=job_id).first()
+                if job:
+                    # Mark as failed
+                    job.status = "failed"
+                    job.error_message = f"Finalization failed: {str(e)[:200]}"
+                    job.completed_at = datetime.now(timezone.utc)
+
+                    # Update chat
+                    chat = db.query(Chat).filter(Chat.id == job.chat_id).first()
+                    if chat:
+                        chat.insights_generation_status = "failed"
+
+                    db.commit()
+
+                    # REFUND coins as safety measure
+                    logger.warning(
+                        "Finalization failed - refunding coins as safety measure",
+                        extra={"extra_data": {
+                            "job_id": job_id,
+                            "chat_id": str(job.chat_id)
+                        }}
+                    )
+
+                    from ..credits.service import CreditService
+                    credit_service = CreditService(db)
+                    try:
+                        credit_service.refund_transaction(
+                            chat_id=job.chat_id,
+                            reason=f"Finalization failed - safety refund: {str(e)[:100]}"
+                        )
+                        logger.info("✓ Safety refund completed after finalization failure")
+                    except Exception as refund_error:
+                        logger.critical(
+                            "CRITICAL: Failed to refund after finalization failure - MANUAL INTERVENTION REQUIRED",
+                            extra={"extra_data": {
+                                "job_id": job_id,
+                                "chat_id": str(job.chat_id),
+                                "original_error": str(e),
+                                "refund_error": str(refund_error)
+                            }},
+                            exc_info=True
+                        )
+
+            except Exception as safety_error:
+                logger.critical(
+                    "CRITICAL: Safety net also failed - MANUAL INTERVENTION REQUIRED",
+                    extra={"extra_data": {
+                        "job_id": job_id,
+                        "original_error": str(e),
+                        "safety_error": str(safety_error)
+                    }},
+                    exc_info=True
+                )
 
 
 

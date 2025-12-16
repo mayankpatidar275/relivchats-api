@@ -97,7 +97,9 @@ class GetChatResponse(BaseModel):
     created_at: datetime
     platform: str
     status: str
-    insights_unlocked: bool  # NEW - check if any insights exist
+    insights_unlocked: bool  # Derived from insights_generation_status == "completed"
+    insights_generation_status: Optional[str] = None  # "not_started" | "queued" | "generating" | "completed" | "partial_failure" | "failed"
+    insights_unlocked_at: Optional[datetime] = None
     vector_status: str = "pending"
     chunk_count: int = 0
     indexed_at: Optional[datetime] = None
@@ -144,6 +146,8 @@ class GetChatResponse(BaseModel):
             category_slug=category_slug,
             category_name=category_name,
             insights_unlocked=db_chat.insights_generation_status == "completed",
+            insights_generation_status=getattr(db_chat, 'insights_generation_status', 'not_started'),
+            insights_unlocked_at=getattr(db_chat, 'insights_unlocked_at', None),
             created_at=db_chat.created_at,
             platform=db_chat.platform,
             status=db_chat.status,

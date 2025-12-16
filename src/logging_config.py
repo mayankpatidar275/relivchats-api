@@ -11,9 +11,27 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
+from uuid import UUID
 import traceback
 
 from .config import settings
+
+
+def json_serializer(obj: Any) -> Any:
+    """
+    Custom JSON serializer for objects that aren't serializable by default
+    Handles UUID, datetime, Path, and other common types
+    """
+    if isinstance(obj, UUID):
+        return str(obj)
+    elif isinstance(obj, (datetime,)):
+        return obj.isoformat()
+    elif isinstance(obj, Path):
+        return str(obj)
+    elif hasattr(obj, '__dict__'):
+        return obj.__dict__
+    else:
+        return str(obj)
 
 
 class StructuredFormatter(logging.Formatter):
@@ -55,8 +73,8 @@ class StructuredFormatter(logging.Formatter):
         # Add stack trace for errors
         if record.levelno >= logging.ERROR and not record.exc_info:
             log_data["stack_trace"] = traceback.format_stack()
-        
-        return json.dumps(log_data)
+
+        return json.dumps(log_data, default=json_serializer)
 
 
 class HumanReadableFormatter(logging.Formatter):

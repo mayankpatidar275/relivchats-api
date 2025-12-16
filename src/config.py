@@ -16,9 +16,11 @@ class Settings(BaseSettings):
 
     # Generation settings
     MAX_CONCURRENT_INSIGHTS: int = 3  # Generate 3 insights in parallel
-    # INSIGHT_GENERATION_TIMEOUT: int = 120  # 2 minutes per insight
-    # INSIGHT_GENERATION_TIMEOUT: int = 5  # 5 minutes per insight
-    INSIGHT_GENERATION_TIMEOUT: int = 120  # 20 minutes per insight
+    # INSIGHT_GENERATION_TIMEOUT: int = 600  # 10 minutes per insight (hard timeout)
+    # Increased from 120s to handle Gemini API slowness/unavailability
+    # Soft timeout (task_soft_time_limit) will be TIMEOUT - 10 seconds
+    # This gives tasks time to cleanup before hard kill
+    INSIGHT_GENERATION_TIMEOUT: int = 600  # 10 minutes per insight
     RAG_CHUNK_CACHE_TTL: int = 3600  # Cache RAG chunks for 1 hour
     
     # Vector Database Settings

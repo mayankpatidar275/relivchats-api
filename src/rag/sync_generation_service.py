@@ -183,7 +183,13 @@ class SyncInsightGenerationOrchestrator:
         self._update_chat_progress(job.chat_id)
     
     def _finalize_job(self, job: InsightGenerationJob):
-        """Mark job as complete and refund if failed"""
+        """
+        Mark job as complete (progress tracking only)
+
+        NOTE: This is called from update_job_progress when all tasks complete.
+        DO NOT refund coins here - that's handled by mark_job_completed()
+        which is called by the finalize_generation_job chord callback.
+        """
         job.completed_at = datetime.now(timezone.utc)
 
         # Determine final status
@@ -203,8 +209,10 @@ class SyncInsightGenerationOrchestrator:
         # Update chat status
         if job.failed_insights == 0:
             chat.insights_generation_status = "completed"
-        else:
+        elif job.completed_insights == 0:
             chat.insights_generation_status = "failed"
+        else:
+            chat.insights_generation_status = "partial_failure"
 
         self.db.commit()
 
@@ -221,9 +229,8 @@ class SyncInsightGenerationOrchestrator:
             }
         )
 
-        # Refund coins if ANY insights failed (immediate deduction pattern)
-        if job.failed_insights > 0:
-            self._refund_coins_after_failure(job, chat)
+        # NOTE: Refund is handled by mark_job_completed() called from chord callback
+        # to prevent double refund race condition
     
     def _refund_coins_after_failure(self, job: InsightGenerationJob, chat: Chat):
         """Refund coins when generation fails (immediate deduction pattern)"""
@@ -241,21 +248,14 @@ class SyncInsightGenerationOrchestrator:
         )
 
         try:
-            # Refund the transaction using async-compatible approach
-            import asyncio
+            # Use synchronous refund method (for Celery workers)
             from ..credits.service import CreditService
-            from ..database import get_async_db_transaction
 
-            async def do_refund():
-                async with get_async_db_transaction() as async_db:
-                    await CreditService.refund_transaction_async(
-                        db=async_db,
-                        chat_id=job.chat_id,
-                        reason=f"{job.failed_insights}/{job.total_insights} insights failed"
-                    )
-
-            # Run async refund in event loop
-            asyncio.run(do_refund())
+            credit_service = CreditService(self.db)
+            credit_service.refund_transaction(
+                chat_id=job.chat_id,
+                reason=f"{job.failed_insights}/{job.total_insights} insights failed"
+            )
 
             logger.info("✓ Coins refunded successfully")
 
@@ -303,8 +303,26 @@ class SyncInsightGenerationOrchestrator:
     def mark_job_completed(self, job_id: str):
         """
         Mark job as completed and refund if any failed
+
+        This is called by the finalize_generation_job chord callback.
+        Includes idempotency check to prevent double refunds.
         """
         job = self._get_job(job_id)
+
+        # IDEMPOTENCY CHECK: If job already finalized, skip to prevent double refund
+        if job.status in ["completed", "failed", "partial_failure"] and job.completed_at:
+            logger.warning(
+                f"Job {job_id} already finalized with status {job.status}, skipping",
+                extra={
+                    "user_id": job.user_id,
+                    "extra_data": {
+                        "job_id": job_id,
+                        "status": job.status,
+                        "completed_at": job.completed_at.isoformat()
+                    }
+                }
+            )
+            return
 
         # Determine final status
         if job.failed_insights == 0:
@@ -325,13 +343,18 @@ class SyncInsightGenerationOrchestrator:
         if job.failed_insights == 0:
             chat.insights_generation_status = "completed"
             logger.info(f"All insights succeeded, keeping coins deducted")
-        else:
+        elif job.completed_insights == 0:
+            # All failed
             chat.insights_generation_status = "failed"
-            logger.info(f"{job.failed_insights} insights failed, refunding coins")
+            logger.info(f"All {job.failed_insights} insights failed, refunding coins")
+        else:
+            # Partial success
+            chat.insights_generation_status = "partial_failure"
+            logger.info(f"{job.failed_insights}/{job.total_insights} insights failed (partial), refunding coins")
 
         self.db.commit()
 
-        # Refund coins if any failed
+        # Refund coins if any failed (idempotency handled by refund method)
         if job.failed_insights > 0:
             self._refund_coins_after_failure(job, chat)
     

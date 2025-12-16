@@ -130,6 +130,142 @@ class CreditService:
             CreditPackage.id == package_id
         ).first()
 
+    def refund_transaction(
+        self,
+        chat_id: UUID,
+        reason: str
+    ) -> CreditTransaction:
+        """
+        Refund credits for a chat (SYNC - for Celery workers)
+
+        This is called when insight generation fails and we need to refund coins.
+
+        Args:
+            chat_id: Chat ID that failed generation
+            reason: Reason for refund
+
+        Returns:
+            CreditTransaction refund record
+
+        Raises:
+            NotFoundException: If chat or original transaction not found
+            DatabaseException: If refund processing fails
+        """
+        logger.info(
+            "Processing refund",
+            extra={
+                "extra_data": {
+                    "chat_id": str(chat_id),
+                    "reason": reason
+                }
+            }
+        )
+
+        try:
+            # Get chat
+            chat = self.db.query(Chat).filter(Chat.id == chat_id).first()
+
+            if not chat:
+                raise NotFoundException("Chat", str(chat_id))
+
+            # Find original deduction transaction
+            original_transaction = self.db.query(CreditTransaction).filter(
+                and_(
+                    CreditTransaction.chat_id == chat_id,
+                    CreditTransaction.type == TransactionType.INSIGHT_UNLOCK,
+                    CreditTransaction.status == TransactionStatus.COMPLETED
+                )
+            ).order_by(desc(CreditTransaction.created_at)).first()
+
+            if not original_transaction:
+                logger.warning(
+                    "No transaction found to refund",
+                    extra={"extra_data": {"chat_id": str(chat_id)}}
+                )
+                raise NotFoundException("Transaction", str(chat_id))
+
+            # Check if already refunded
+            if original_transaction.status == TransactionStatus.REFUNDED:
+                logger.info(
+                    "Transaction already refunded",
+                    extra={"extra_data": {"transaction_id": str(original_transaction.id)}}
+                )
+                return original_transaction
+
+            # Refund the amount (positive because we're adding back)
+            refund_amount = abs(original_transaction.amount)
+
+            # Get user with lock to prevent race conditions
+            user = self.db.query(User).filter(
+                User.user_id == original_transaction.user_id
+            ).with_for_update().first()
+
+            if not user:
+                raise NotFoundException("User", original_transaction.user_id)
+
+            # Add credits back to user
+            user.credit_balance += refund_amount
+
+            # Create refund transaction
+            refund = CreditTransaction(
+                user_id=original_transaction.user_id,
+                type=TransactionType.REFUND,
+                amount=refund_amount,  # Positive to add back
+                balance_after=user.credit_balance,
+                description=f"Refund: {reason}",
+                chat_id=chat_id,
+                transaction_metadata={
+                    "original_transaction_id": str(original_transaction.id),
+                    "chat_id": str(chat_id),
+                    "reason": reason
+                },
+                status=TransactionStatus.COMPLETED
+            )
+
+            self.db.add(refund)
+
+            # Mark original as refunded
+            original_transaction.status = TransactionStatus.REFUNDED
+
+            self.db.commit()
+            self.db.refresh(refund)
+
+            log_business_event(
+                "credits_refunded",
+                user_id=original_transaction.user_id,
+                chat_id=str(chat_id),
+                amount=refund_amount,
+                reason=reason
+            )
+
+            logger.info(
+                f"Refund completed: {refund_amount} credits",
+                extra={
+                    "user_id": original_transaction.user_id,
+                    "extra_data": {
+                        "refund_id": str(refund.id),
+                        "amount": refund_amount,
+                        "new_balance": user.credit_balance
+                    }
+                }
+            )
+
+            return refund
+
+        except NotFoundException:
+            raise
+        except Exception as e:
+            self.db.rollback()
+            logger.error(
+                f"Failed to process refund: {str(e)}",
+                extra={"extra_data": {"chat_id": str(chat_id)}},
+                exc_info=True
+            )
+            raise DatabaseException(
+                message="Failed to process refund",
+                original_error=e
+            )
+
 
     # ========================================================================
     # ASYNC METHODS (New - Production Ready)
@@ -492,10 +628,7 @@ class CreditService:
         category_id: UUID
     ) ->  dict:
         """
-        Reserve coins and start insight generation
-        
-        NO COINS DEDUCTED YET - only reserved.
-        Coins will be charged after ALL insights succeed.
+        Start insight generation
         """
         logger.info(
             "Insights unlock requested",
@@ -512,7 +645,7 @@ class CreditService:
             # 1. Verify chat ownership
             result = await db.execute(
                 select(Chat).where(
-                    and_(
+                    and_( 
                         Chat.id == chat_id,
                         Chat.user_id == user_id,
                         Chat.is_deleted == False

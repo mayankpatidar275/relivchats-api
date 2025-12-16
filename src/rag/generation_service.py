@@ -123,63 +123,63 @@ class InsightGenerationOrchestrator:
     # ASYNC JOB LIFECYCLE
     # ========================================================================
     
-    async def start_job(self, job_id: str):
-        """Mark job as running"""
-        job = await self._get_job(job_id)
-        job.status = "running"
-        job.started_at = datetime.now(timezone.utc)
-        await self.db.commit()
+    # async def start_job(self, job_id: str):
+    #     """Mark job as running"""
+    #     job = await self._get_job(job_id)
+    #     job.status = "running"
+    #     job.started_at = datetime.now(timezone.utc)
+    #     await self.db.commit()
         
-        # Update chat
-        result = await self.db.execute(
-            select(Chat).where(Chat.id == job.chat_id)
-        )
-        chat = result.scalar_one_or_none()
+    #     # Update chat
+    #     result = await self.db.execute(
+    #         select(Chat).where(Chat.id == job.chat_id)
+    #     )
+    #     chat = result.scalar_one_or_none()
         
-        if chat:
-            chat.insights_generation_status = "generating"
-            chat.insights_generation_started_at = datetime.now(timezone.utc)
-            await self.db.commit()
+    #     if chat:
+    #         chat.insights_generation_status = "generating"
+    #         chat.insights_generation_started_at = datetime.now(timezone.utc)
+    #         await self.db.commit()
         
-        logger.info(f"Job started: {job_id}")
+    #     logger.info(f"Job started: {job_id}")
     
-    async def extract_shared_context(self, job_id: str) -> Dict[str, List]:
-        """Extract RAG context once for all insights"""
-        job = await self._get_job(job_id)
+    # async def extract_shared_context(self, job_id: str) -> Dict[str, List]:
+    #     """Extract RAG context once for all insights"""
+    #     job = await self._get_job(job_id)
         
-        # Get insight types for this category
-        result = await self.db.execute(
-            select(CategoryInsightType)
-            .where(CategoryInsightType.category_id == job.category_id)
-            .join(InsightType)
-            .where(InsightType.is_active == True)
-        )
-        insight_types = result.scalars().all()
+    #     # Get insight types for this category
+    #     result = await self.db.execute(
+    #         select(CategoryInsightType)
+    #         .where(CategoryInsightType.category_id == job.category_id)
+    #         .join(InsightType)
+    #         .where(InsightType.is_active == True)
+    #     )
+    #     insight_types = result.scalars().all()
         
-        insight_type_configs = [
-            {
-                "id": cit.insight_type_id,
-                "rag_query_keywords": cit.insight_type.rag_query_keywords
-            }
-            for cit in insight_types
-        ]
+    #     insight_type_configs = [
+    #         {
+    #             "id": cit.insight_type_id,
+    #             "rag_query_keywords": cit.insight_type.rag_query_keywords
+    #         }
+    #         for cit in insight_types
+    #     ]
         
-        # Extract context (cached in Redis)
-        context = await self.rag_extractor.extract_category_context(
-            chat_id=job.chat_id,
-            category_id=job.category_id,
-            insight_types=insight_type_configs
-        )
+    #     # Extract context (cached in Redis)
+    #     context = await self.rag_extractor.extract_category_context(
+    #         chat_id=job.chat_id,
+    #         category_id=job.category_id,
+    #         insight_types=insight_type_configs
+    #     )
         
-        logger.info(
-            f"Extracted RAG context: {len(context)} keyword groups",
-            extra={
-                "user_id": job.user_id,
-                "extra_data": {"job_id": job_id}
-            }
-        )
+    #     logger.info(
+    #         f"Extracted RAG context: {len(context)} keyword groups",
+    #         extra={
+    #             "user_id": job.user_id,
+    #             "extra_data": {"job_id": job_id}
+    #         }
+    #     )
         
-        return context
+    #     return context
     
     async def update_job_progress(
         self,

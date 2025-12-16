@@ -28,7 +28,7 @@ async def get_categories(db: AsyncSession = Depends(get_async_db)):
         logger.info(f"select(1) took {(time.time()-start)*1000:.1f}ms")
 
         start = time.time()
-        logger.info(f"DB query START")
+        logger.info("DB query START")
         
         result = await db.execute(
             select(models.AnalysisCategory)

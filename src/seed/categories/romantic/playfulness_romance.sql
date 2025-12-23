@@ -419,7 +419,12 @@ Provide insights on:
       "type": "object",
       "required": ["score", "spark_status", "summary"],
       "properties": {
-        "score": {"type": "integer"},
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "description": "Playfulness and romance spark score (0-10)"
+        },
         "spark_status": {"type": "string"},
         "summary": {"type": "string"}
       }

@@ -317,7 +317,12 @@ Provide insights on:
       "type": "object",
       "required": ["score", "vision_status", "summary"],
       "properties": {
-        "score": {"type": "integer"},
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "description": "Shared vision alignment score (0-10)"
+        },
         "vision_status": {"type": "string"},
         "summary": {"type": "string"}
       }

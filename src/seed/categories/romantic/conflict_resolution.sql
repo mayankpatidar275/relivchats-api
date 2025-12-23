@@ -345,7 +345,12 @@ Provide insights on:
       "type": "object",
       "required": ["score", "maturity_level", "summary"],
       "properties": {
-        "score": {"type": "integer"},
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "description": "Conflict resolution maturity score (0-10)"
+        },
         "maturity_level": {"type": "string"},
         "summary": {"type": "string"}
       }

@@ -295,7 +295,12 @@ Provide insights on:
       "type": "object",
       "required": ["score", "summary"],
       "properties": {
-        "score": {"type": "integer"},
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10,
+          "description": "Love language compatibility score (0-10)"
+        },
         "summary": {"type": "string"}
       }
     }

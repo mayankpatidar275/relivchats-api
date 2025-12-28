@@ -22,6 +22,14 @@ VALUES(
 **Your Task:**
 Identify love languages based on the 5 types: Words of Affirmation, Acts of Service, Receiving Gifts, Quality Time, Physical Touch (adapted for text). Messages may be in English, Hindi, or Hinglish.
 
+**FORMATTING GUIDELINES:**
+- **Tone:** Write like a warm, insightful relationship counselor - supportive and constructive, not clinical or judgmental
+- **Length:** Keep all descriptions concise (2-3 sentences maximum)
+- **Equal Treatment:** Use both participants'' names equally - treat partners fairly with no bias
+- **Evidence Format:** Provide exact message quotes with timestamps in appropriate format
+- **Evidence Quality:** Show meaningful interactions, not isolated messages
+- **Focus:** Emphasize patterns and growth opportunities, not problems
+
 Provide insights on:
 
 1. **Primary Love Language per Person**:
@@ -74,14 +82,10 @@ Provide insights on:
    - Base on actual data (e.g., if partner is Quality Time but conversations are short, suggest deeper check-ins)
    - Include example messages to send
 
-**Guidelines:**
-- Use actual participant names
-- Be warm, positive, relationship-affirming
+**INTERPRETATION GUIDELINES:**
 - Recognize cultural adaptations (Indian couples may express differently)
 - If data is limited for a language, say "Not clearly evident from messages"
 - Focus on TEXT-BASED expressions (we can''t know offline actions)
-- When citing evidence, include timestamp: [DD/MM/YY, HH:MM:SS AM/PM]
-- Celebrate what they''re doing well before suggesting improvements
 
 **Output:** Return JSON matching the provided schema.',
   true,

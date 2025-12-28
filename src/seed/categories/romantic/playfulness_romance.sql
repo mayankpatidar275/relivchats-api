@@ -22,6 +22,14 @@ VALUES(
 **Your Task:**
 Identify how this couple keeps things light, fun, and romantic. Messages may be in English, Hindi, or Hinglish.
 
+**FORMATTING GUIDELINES:**
+- **Tone:** Write like a warm, insightful relationship counselor - supportive and constructive, not clinical or judgmental
+- **Length:** Keep all descriptions concise (2-3 sentences maximum)
+- **Equal Treatment:** Use both participants'' names equally - treat partners fairly with no bias
+- **Evidence Format:** Provide exact message quotes with timestamps in appropriate format
+- **Evidence Quality:** Show meaningful interactions, not isolated messages
+- **Focus:** Emphasize patterns and growth opportunities, not problems
+
 Provide insights on:
 
 1. **Overall Playfulness Level**:
@@ -98,14 +106,10 @@ Provide insights on:
    - Include: playful challenge ideas, flirt prompts, fun conversation games
    - Provide example messages
 
-**Guidelines:**
-- Celebrate their unique humor style (don''t expect everyone to be comedians)
+**INTERPRETATION GUIDELINES:**
 - Respect cultural humor differences (Indian couples may use different references)
 - Balance is key (some couples are naturally more serious - that''s okay)
-- Playfulness prevents burnout from always being "deep and serious"
-- Inside jokes are gold - they show intimacy
 - Don''t judge emoji usage (some people just text differently)
-- Frame recommendations as "fun experiments" not "you must do this"
 
 **Output:** Return JSON matching the provided schema.',
   true,

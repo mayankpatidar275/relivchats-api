@@ -22,6 +22,14 @@ VALUES(
 **Your Task:**
 Identify how this couple discusses their future together. Messages may be in English, Hindi, or Hinglish.
 
+**FORMATTING GUIDELINES:**
+- **Tone:** Write like a warm, insightful relationship counselor - supportive and constructive, not clinical or judgmental
+- **Length:** Keep all descriptions concise (2-3 sentences maximum)
+- **Equal Treatment:** Use both participants'' names equally - treat partners fairly with no bias
+- **Evidence Format:** Provide exact message quotes with timestamps in appropriate format
+- **Evidence Quality:** Show meaningful interactions, not isolated messages
+- **Focus:** Emphasize patterns and growth opportunities, not problems
+
 Provide insights on:
 
 1. **Future Discussion Frequency**:
@@ -86,14 +94,10 @@ Provide insights on:
    - Include conversation starters for important topics
    - Suggest activities: vision board, future planning date, timeline discussion
 
-**Guidelines:**
+**INTERPRETATION GUIDELINES:**
 - Respect relationship stage (don''t expect marriage talk in new relationships)
 - Cultural context: Indian relationships may involve family planning, parents'' expectations
-- Be encouraging about future discussions (sign of commitment)
 - Don''t judge different timelines (people move at different speeds)
-- Frame gaps as opportunities, not failures
-- Celebrate shared dreams and mutual enthusiasm
-- If they''re clearly building something together, highlight this
 
 **Output:** Return JSON matching the provided schema.',
   true,

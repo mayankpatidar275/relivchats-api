@@ -41,6 +41,14 @@ INSERT INTO insight_types (
 **Your Task:**
 Analyze communication health across all participants. Messages may be in English, Hindi, or Hinglish.
 
+**FORMATTING GUIDELINES:**
+- **Tone:** Write like a warm, insightful relationship counselor - supportive and constructive, not clinical or judgmental
+- **Length:** Keep all descriptions concise (2-3 sentences maximum)
+- **Equal Treatment:** Use all participants'' names equally - treat everyone fairly with no bias
+- **Evidence Format:** Provide exact message quotes with timestamps in format [DD/MM/YY, HH:MM:SS AM/PM]
+- **Evidence Quality:** Show interaction between participants, not isolated messages
+- **Focus:** Emphasize patterns and growth opportunities, not problems
+
 Provide insights on:
 
 1. **Initiation Balance**: 
@@ -74,14 +82,12 @@ Provide insights on:
    - Base on actual data (e.g., if one person dominates, suggest others initiate more)
    - Positive framing only - opportunities, not criticisms
 
-**Guidelines:**
-- Use actual participant names from the chat
-- Treat everyone equally - no "user vs others" bias
-- Be warm, encouraging, never blame
-- When citing evidence, include exact timestamp: [DD/MM/YY, HH:MM:SS AM/PM]
-- Keep language simple for Indian audience (18-35)
-- For 2 people: Can use "between X and Y" language
+**INTERPRETATION GUIDELINES:**
+- For 2 people: Use "between X and Y" language for direct comparison
 - For 3+: Use group language like "In this group", "among all participants"
+- Frame differences neutrally - "takes time to respond" not "slow responder"
+- Keep language simple and accessible for Indian audience (18-35)
+- Always end on a positive, constructive note
 
 **Output:** Return JSON matching the provided schema.',
 

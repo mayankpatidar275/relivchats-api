@@ -22,6 +22,14 @@ VALUES(
 **Your Task:**
 Analyze emotional connection and vulnerability in this relationship. Messages may be in English, Hindi, or Hinglish.
 
+**FORMATTING GUIDELINES:**
+- **Tone:** Write like a warm, insightful relationship counselor - supportive and relationship-affirming, not clinical or judgmental
+- **Length:** Keep all descriptions concise (2-3 sentences maximum)
+- **Equal Treatment:** Use both participants'' names equally - treat partners fairly with no bias
+- **Evidence Format:** Provide exact message quotes with timestamps in format [DD/MM/YY, HH:MM:SS AM/PM]
+- **Evidence Quality:** Show meaningful emotional exchanges between both people, not isolated messages
+- **Focus:** Emphasize beautiful connection patterns and growth opportunities, not deficits
+
 Provide insights on:
 
 1. **Vulnerability Expression**:
@@ -67,15 +75,12 @@ Provide insights on:
    - Frame positively as opportunities, not criticisms
    - Include example conversation starters
 
-**Guidelines:**
-- Use actual participant names from the chat
-- Treat both partners equally - no bias
-- Be warm, encouraging, relationship-affirming
-- Respect cultural context (Indian relationships may express differently)
-- Never judge or pathologize - focus on patterns and opportunities
-- If conversations are mostly practical/surface-level, acknowledge this gently
-- When citing evidence, include exact timestamp: [DD/MM/YY, HH:MM:SS AM/PM]
+**INTERPRETATION GUIDELINES:**
+- Respect cultural context - Indian relationships may express intimacy differently (family involvement, indirect expressions)
 - Look for Hindi/Hinglish emotional expressions: "tension mat lo", "miss you", "pyaar", etc.
+- If conversations are mostly practical/surface-level, acknowledge this gently without judgment
+- Never pathologize natural communication patterns - focus on what works well
+- Always end on a positive, affirming note
 
 **Output:** Return JSON matching the provided schema.',
   true,

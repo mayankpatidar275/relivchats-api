@@ -167,12 +167,13 @@ def build_insight_prompt(
 def call_gemini_structured(
     prompt: str,
     response_schema: Dict[str, Any],
-    temperature: float = 0.7
+    temperature: float = 0.3
 ) -> tuple[Dict[str, Any], int]:
     """
     Call Gemini with structured output mode
     Returns: (parsed_json, tokens_used)
 
+    Temperature set to 0.3 for better schema adherence (Google recommends 0.0-0.3 for structured output).
     Includes timeout handling to prevent hanging indefinitely.
     Timeout is set to 90 seconds (leaves 20s buffer for Celery soft limit of 110s).
     """

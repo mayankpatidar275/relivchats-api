@@ -20,7 +20,15 @@ VALUES(
 {chunks}
 
 **Your Task:**
-Identify how this couple handles disagreements, tension, and stressful situations. Messages may be in English, Hindi, or Hinglish.
+Analyze how this couple handles disagreements, tension, and stressful situations. Messages may be in English, Hindi, or Hinglish.
+
+**FORMATTING GUIDELINES:**
+- **Tone:** Write like a warm, insightful relationship counselor - supportive and constructive, not clinical or judgmental
+- **Length:** Keep all descriptions concise (2-3 sentences maximum)
+- **Equal Treatment:** Use both participants'' names equally throughout - NEVER use "you" or single out one person
+- **Evidence Context:** Describe the SITUATION, not timestamps (Good: "During a discussion about project delays" | Bad: "Messages at 2pm")
+- **Evidence Exchange:** Include 2-4 actual messages per evidence item for readability
+- **Focus:** Emphasize patterns and growth opportunities, not problems
 
 Provide insights on:
 
@@ -29,12 +37,11 @@ Provide insights on:
    - If yes: Approximate frequency (rare, occasional, frequent)
    - If no: Is this genuinely harmonious OR are conflicts avoided/taken offline?
    - Look for: arguments, tension, "but", "however", defensive language, hurt feelings
-   - 3-4 sentences assessment
 
 2. **Conflict Triggers**:
    - What topics/situations spark tension?
    - Common triggers: miscommunication, unmet expectations, time/attention, external stress, family/friends
-   - For EACH identified trigger: provide 1-2 evidence exchanges
+   - Provide 1-2 evidence items for each identified trigger
    - If no conflicts: state "No clear conflict triggers identified"
 
 3. **Individual Conflict Styles**:
@@ -46,53 +53,49 @@ Provide insights on:
      * Accommodating: quickly apologizes, gives in, prioritizes peace over resolution
      * Passive-aggressive: indirect criticism, sarcasm, subtle digs
    - Rate intensity: low, moderate, high
-   - Provide description and evidence
+   - Provide 1-2 evidence items showing this style in action
 
 4. **Communication Patterns Under Stress**:
-   - How does communication change when stressed/upset?
+   - How does communication change when stressed/upset during conflicts?
    - Look for: message frequency changes, tone shifts, emoji usage drops, shorter messages, delayed responses
    - Do they communicate stress directly ("I''m stressed") or indirectly (behavior changes)?
    - Who initiates difficult conversations?
-   - 3-4 sentences analysis
 
 5. **Repair & Recovery**:
    - After tension, how do they reconnect?
    - Repair strategies: direct apology, humor, gifts/gestures, time/space then return, pretend nothing happened
    - Who initiates repair more often?
    - Timeframe: immediate, hours, days
-   - Provide 2-3 evidence exchanges showing repair process
+   - Provide 2-3 evidence items showing the repair process
 
 6. **Positive Conflict Behaviors**:
    - What do they do WELL during disagreements?
    - Examples: staying respectful, validating feelings, taking breaks, using "I feel" statements, humor to diffuse
-   - Find 2-3 examples with evidence
+   - Identify 2-3 positive behaviors with evidence items
    - Celebrate healthy patterns
 
 7. **Destructive Patterns** (if any):
    - Red flags: name-calling, bringing up past, "you always/never", silent treatment >24hrs, threats
-   - Be honest but gentle - frame as "areas to watch"
    - If none: celebrate this explicitly
-   - Provide evidence if present
+   - Provide evidence items if patterns exist
 
 8. **Stress Support**:
-   - When one person is stressed (external: work, family, health), how does partner respond?
+   - When one person is stressed by external factors (work, family, health), how does partner respond?
    - Supportive responses vs adding pressure
-   - Provide 2-3 examples
+   - Provide 2-3 evidence items showing support in action
 
 9. **Growth Recommendations**:
-   - 2-3 specific suggestions to handle conflict more constructively
-   - Base on actual patterns (e.g., if avoidant, suggest "I need time but let''s revisit in X hours")
-   - Include conflict de-escalation techniques
-   - Provide example phrases
+   - Provide 2-3 specific, actionable suggestions based on observed patterns
+   - Target recommendations to specific people when relevant (use their names in "target" field)
+   - Provide 3-5 practical example phrases they can use
 
-**CRITICAL GUIDELINES:**
+**INTERPRETATION GUIDELINES:**
 - Be extremely careful with interpretation - not every "but" is conflict
 - Never catastrophize or pathologize normal couple disagreements
 - If conflicts are healthy/minor, celebrate this (most couples fight!)
-- Frame destructive patterns as "opportunities" not "problems"
 - Some couples genuinely don''t fight in text - acknowledge this
 - Cultural context: Indian couples may handle conflict differently (family involvement, indirect communication)
-- Always end on hopeful, constructive note
+- Always end on a hopeful, constructive note
 
 **Output:** Return JSON matching the provided schema.',
   true,
@@ -122,35 +125,37 @@ Provide insights on:
       "type": "object",
       "required": ["visible_conflicts", "frequency", "assessment"],
       "properties": {
-        "visible_conflicts": {"type": "boolean"},
-        "frequency": {"type": "string"},
-        "assessment": {"type": "string"}
+        "visible_conflicts": { "type": "boolean" },
+        "frequency": {
+          "type": "string"
+        },
+        "assessment": { "type": "string", "maxLength": 800 }
       }
     },
     "conflict_triggers": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["trigger_type", "description"],
+        "required": ["trigger_type", "description", "evidence"],
         "properties": {
-          "trigger_type": {"type": "string"},
-          "description": {"type": "string"},
+          "trigger_type": { "type": "string" },
+          "description": { "type": "string" },
           "evidence": {
             "type": "array",
             "items": {
               "type": "object",
               "required": ["context", "exchange"],
               "properties": {
-                "context": {"type": "string"},
+                "context": { "type": "string" },
                 "exchange": {
                   "type": "array",
                   "items": {
                     "type": "object",
-                    "required": ["message", "speaker", "timestamp"],
+                    "required": ["speaker", "message", "timestamp"],
                     "properties": {
-                      "message": {"type": "string"},
-                      "speaker": {"type": "string"},
-                      "timestamp": {"type": "string"}
+                      "speaker": { "type": "string" },
+                      "message": { "type": "string" },
+                      "timestamp": { "type": "string" }
                     }
                   }
                 }
@@ -168,27 +173,44 @@ Provide insights on:
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["name", "style", "intensity", "description"],
+            "required": [
+              "name",
+              "style",
+              "intensity",
+              "description",
+              "evidence"
+            ],
             "properties": {
-              "name": {"type": "string"},
-              "style": {"type": "string"},
-              "intensity": {"type": "string"},
-              "description": {"type": "string"},
+              "name": { "type": "string" },
+              "style": { "type": "string" },
+              "intensity": { "type": "string" },
+              "description": { "type": "string" },
               "evidence": {
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["message", "speaker", "timestamp"],
+                  "required": ["context", "exchange"],
                   "properties": {
-                    "message": {"type": "string"},
-                    "speaker": {"type": "string"},
-                    "timestamp": {"type": "string"},
-                    "context": {"type": "string"}
+                    "context": { "type": "string" },
+                    "exchange": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["speaker", "message", "timestamp"],
+                        "properties": {
+                          "speaker": { "type": "string" },
+                          "message": { "type": "string" },
+                          "timestamp": { "type": "string" }
+                        }
+                      }
+                    }
                   }
                 }
               }
             }
-          }
+          },
+          "maxItems": 2,
+          "minItems": 2
         }
       }
     },
@@ -196,41 +218,41 @@ Provide insights on:
       "type": "object",
       "required": ["pattern_description", "initiator", "changes"],
       "properties": {
-        "pattern_description": {"type": "string"},
-        "initiator": {"type": "string"},
+        "pattern_description": { "type": "string" },
+        "initiator": { "type": "string" },
         "changes": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": { "type": "string" }
         }
       }
     },
     "repair_recovery": {
       "type": "object",
-      "required": ["strategies", "initiator", "timeframe", "effectiveness"],
+      "required": ["strategies", "initiator", "timeframe", "effectiveness", "evidence"],
       "properties": {
         "strategies": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": { "type": "string" }
         },
-        "initiator": {"type": "string"},
-        "timeframe": {"type": "string"},
-        "effectiveness": {"type": "string"},
+        "initiator": { "type": "string" },
+        "timeframe": { "type": "string" },
+        "effectiveness": { "type": "string" },
         "evidence": {
           "type": "array",
           "items": {
             "type": "object",
             "required": ["context", "exchange"],
             "properties": {
-              "context": {"type": "string"},
+              "context": { "type": "string" },
               "exchange": {
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["message", "speaker", "timestamp"],
+                  "required": ["speaker", "message", "timestamp"],
                   "properties": {
-                    "message": {"type": "string"},
-                    "speaker": {"type": "string"},
-                    "timestamp": {"type": "string"}
+                    "speaker": { "type": "string" },
+                    "message": { "type": "string" },
+                    "timestamp": { "type": "string" }
                   }
                 }
               }
@@ -243,20 +265,29 @@ Provide insights on:
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["behavior", "description"],
+        "required": ["behavior", "description", "evidence"],
         "properties": {
-          "behavior": {"type": "string"},
-          "description": {"type": "string"},
+          "behavior": { "type": "string" },
+          "description": { "type": "string" },
           "evidence": {
             "type": "array",
             "items": {
               "type": "object",
-              "required": ["message", "speaker", "timestamp"],
+              "required": ["context", "exchange"],
               "properties": {
-                "message": {"type": "string"},
-                "speaker": {"type": "string"},
-                "timestamp": {"type": "string"},
-                "context": {"type": "string"}
+                "context": { "type": "string" },
+                "exchange": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["speaker", "message", "timestamp"],
+                    "properties": {
+                      "speaker": { "type": "string" },
+                      "message": { "type": "string" },
+                      "timestamp": { "type": "string" }
+                    }
+                  }
+                }
               }
             }
           }
@@ -267,26 +298,36 @@ Provide insights on:
       "type": "object",
       "required": ["present", "assessment"],
       "properties": {
-        "present": {"type": "boolean"},
-        "assessment": {"type": "string"},
+        "present": { "type": "boolean" },
+        "assessment": { "type": "string" },
         "patterns": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["pattern_type", "description", "severity"],
+            "required": ["pattern_type", "description", "severity", "evidence"],
             "properties": {
-              "pattern_type": {"type": "string"},
-              "description": {"type": "string"},
-              "severity": {"type": "string"},
+              "pattern_type": { "type": "string" },
+              "description": { "type": "string" },
+              "severity": { "type": "string" },
               "evidence": {
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["message", "speaker", "timestamp"],
+                  "required": ["context", "exchange"],
                   "properties": {
-                    "message": {"type": "string"},
-                    "speaker": {"type": "string"},
-                    "timestamp": {"type": "string"}
+                    "context": { "type": "string" },
+                    "exchange": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["speaker", "message", "timestamp"],
+                        "properties": {
+                          "speaker": { "type": "string" },
+                          "message": { "type": "string" },
+                          "timestamp": { "type": "string" }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -299,23 +340,23 @@ Provide insights on:
       "type": "object",
       "required": ["analysis", "evidence"],
       "properties": {
-        "analysis": {"type": "string"},
+        "analysis": { "type": "string" },
         "evidence": {
           "type": "array",
           "items": {
             "type": "object",
             "required": ["context", "exchange"],
             "properties": {
-              "context": {"type": "string"},
+              "context": { "type": "string" },
               "exchange": {
                 "type": "array",
                 "items": {
                   "type": "object",
-                  "required": ["message", "speaker", "timestamp"],
+                  "required": ["speaker", "message", "timestamp"],
                   "properties": {
-                    "message": {"type": "string"},
-                    "speaker": {"type": "string"},
-                    "timestamp": {"type": "string"}
+                    "speaker": { "type": "string" },
+                    "message": { "type": "string" },
+                    "timestamp": { "type": "string" }
                   }
                 }
               }
@@ -328,31 +369,27 @@ Provide insights on:
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["title", "target", "suggestion", "technique", "example_phrases"],
+        "required": ["title", "target", "suggestion", "example_phrases"],
         "properties": {
-          "title": {"type": "string"},
-          "target": {"type": "array", "items": {"type": "string"}},
-          "suggestion": {"type": "string"},
-          "technique": {"type": "string"},
+          "title": { "type": "string" },
+          "target": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "suggestion": { "type": "string" },
           "example_phrases": {
             "type": "array",
-            "items": {"type": "string"}
+            "items": { "type": "string" }
           }
         }
       }
     },
     "overall": {
       "type": "object",
-      "required": ["score", "maturity_level", "summary"],
+      "required": ["score", "summary"],
       "properties": {
-        "score": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 10,
-          "description": "Conflict resolution maturity score (0-10)"
-        },
-        "maturity_level": {"type": "string"},
-        "summary": {"type": "string"}
+        "score": { "type": "integer", "minimum": 0, "maximum": 10 },
+        "summary": { "type": "string" }
       }
     }
   }

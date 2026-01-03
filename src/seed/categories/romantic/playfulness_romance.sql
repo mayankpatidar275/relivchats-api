@@ -446,7 +446,7 @@ Provide insights on:
 -- VALUES(
 --   gen_random_uuid(),
 --   (SELECT id FROM analysis_categories WHERE name = 'romantic'),
---   'c3d4e5f6-7a8b-9c0d-1e2f-3a4b5c6d7e8f'::uuid,
---   6,
+--   (SELECT id FROM insight_types WHERE name = 'playfulness_romance'),
+--   5,
 --   NOW()
 -- );

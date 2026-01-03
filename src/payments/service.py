@@ -354,85 +354,95 @@ class PaymentService:
     ):
         """
         Process successful payment - credit coins to user
-        
+
         This is wrapped in the same transaction as order update,
         ensuring atomicity.
         """
+        # Capture values before any exception to avoid lazy-loading after rollback
+        user_id = payment_order.user_id
+        order_id = str(payment_order.id)
+        coins = payment_order.coins
+        amount = payment_order.amount
+        currency = payment_order.currency
+        provider = payment_order.provider.value
+        package_id = payment_order.package_id
+        provider_order_id = payment_order.provider_order_id
+
         payment_order.completed_at = datetime.now(timezone.utc)
-        
+
         logger.info(
             "Processing successful payment",
             extra={
-                "user_id": payment_order.user_id,
+                "user_id": user_id,
                 "extra_data": {
-                    "order_id": str(payment_order.id),
-                    "coins": payment_order.coins,
-                    "amount": payment_order.amount,
-                    "currency": payment_order.currency
+                    "order_id": order_id,
+                    "coins": coins,
+                    "amount": amount,
+                    "currency": currency
                 }
             }
         )
-        
+
         try:
             # Credit coins to user (using async method)
             await CreditService.add_transaction_async(
                 db=self.db,
-                user_id=payment_order.user_id,
+                user_id=user_id,
                 transaction_type=TransactionType.PURCHASE,
-                amount=payment_order.coins,
-                description=f"Purchased {payment_order.coins} coins",
+                amount=coins,
+                description=f"Purchased {coins} coins",
                 payment_id=verification.payment_id,
-                package_id=payment_order.package_id,
+                package_id=package_id,
                 transaction_metadata={
-                    "payment_order_id": str(payment_order.id),
-                    "provider_order_id": payment_order.provider_order_id,
+                    "payment_order_id": order_id,
+                    "provider_order_id": provider_order_id,
                     "provider_payment_id": verification.payment_id,
-                    "amount_paid": payment_order.amount,
-                    "currency": payment_order.currency,
-                    "provider": payment_order.provider.value
+                    "amount_paid": amount,
+                    "currency": currency,
+                    "provider": provider
                 }
             )
-            
+
             log_business_event(
                 "payment_completed",
-                user_id=payment_order.user_id,
-                order_id=str(payment_order.id),
-                coins=payment_order.coins,
-                amount=payment_order.amount,
-                currency=payment_order.currency,
-                provider=payment_order.provider.value,
+                user_id=user_id,
+                order_id=order_id,
+                coins=coins,
+                amount=amount,
+                currency=currency,
+                provider=provider,
                 payment_id=verification.payment_id
             )
-            
+
             logger.info(
                 "Coins credited successfully",
                 extra={
-                    "user_id": payment_order.user_id,
+                    "user_id": user_id,
                     "extra_data": {
-                        "coins": payment_order.coins,
-                        "order_id": str(payment_order.id)
+                        "coins": coins,
+                        "order_id": order_id
                     }
                 }
             )
-            
+
         except Exception as e:
             logger.critical(
                 f"CRITICAL: Failed to credit coins after successful payment: {str(e)}",
                 extra={
-                    "user_id": payment_order.user_id,
+                    "user_id": user_id,
                     "extra_data": {
-                        "order_id": str(payment_order.id),
-                        "coins": payment_order.coins,
+                        "order_id": order_id,
+                        "coins": coins,
                         "payment_id": verification.payment_id
                     }
                 },
                 exc_info=True
             )
-            
+
             # This is critical - payment succeeded but credit failed
             # Manual intervention required - alert monitoring
             raise DatabaseException(
-                message=f"Payment succeeded but failed to credit coins. Order ID: {payment_order.id}",
+                message=f"Payment succeeded but failed to credit coins. Order ID: {order_id}",
                 original_error=e
             )
     

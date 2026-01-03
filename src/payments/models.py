@@ -30,15 +30,15 @@ class PaymentOrder(Base):
     # Idempotency
     idempotency_key = Column(String, unique=True, index=True)
     
-    # Timestamps - Use timezone-naive UTC
+    # Timestamps
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    completed_at = Column(DateTime)
-    
+    completed_at = Column(DateTime(timezone=True))
+
     # Metadata
     payment_order_metadata = Column(JSON)
-    
+
     # Webhook tracking
-    webhook_received_at = Column(DateTime)
+    webhook_received_at = Column(DateTime(timezone=True))
     webhook_count = Column(Integer, default=0)
     
     def __repr__(self):
@@ -68,7 +68,7 @@ class PaymentRefund(Base):
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    processed_at = Column(DateTime)
+    processed_at = Column(DateTime(timezone=True))
     
     # Metadata
     payment_refund_metadata = Column(JSON)

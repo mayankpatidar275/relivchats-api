@@ -344,7 +344,7 @@ Provide insights on:
 -- VALUES(
 --   gen_random_uuid(),
 --   (SELECT id FROM analysis_categories WHERE name = 'romantic'),
---   'b2c3d4e5-6f7a-8b9c-0d1e-2f3a4b5c6d7e'::uuid,
+--   (SELECT id FROM insight_types WHERE name = 'future_planning'),
 --   5,
 --   NOW()
 -- );

@@ -405,7 +405,7 @@ Provide insights on:
 -- VALUES(
 --   gen_random_uuid(),
 --   (SELECT id FROM analysis_categories WHERE name = 'romantic'),
---   'a9d8e7f6-5c4b-3a2d-1e0f-9a8b7c6d5e4f'::uuid,
+--   (SELECT id FROM insight_types WHERE name = 'conflict_resolution'),
 --   4,
 --   NOW()
 -- );

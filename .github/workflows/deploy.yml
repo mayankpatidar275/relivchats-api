@@ -43,19 +43,65 @@ jobs:
 
             # Create .env file with secrets
             cat > .env << 'EOF'
-            DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
+            # ============================================================================
+            # CRITICAL: Environment & Monitoring
+            # ============================================================================
+            ENVIRONMENT=${{ secrets.ENVIRONMENT }}
+            SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+            SENTRY_TRACES_SAMPLE_RATE=0.1
+
+            # ============================================================================
+            # Database & Cache
+            # ============================================================================
             DATABASE_URL=${{ secrets.DATABASE_URL }}
             REDIS_URL=${{ secrets.REDIS_URL }}
+            CELERY_BROKER_URL=${{ secrets.CELERY_BROKER_URL }}
+
+            # ============================================================================
+            # Vector Database (Qdrant)
+            # ============================================================================
             QDRANT_URL=${{ secrets.QDRANT_URL }}
             QDRANT_API_KEY=${{ secrets.QDRANT_API_KEY }}
+            QDRANT_TIMEOUT=${{ secrets.QDRANT_TIMEOUT }}
+            QDRANT_BATCH_SIZE=${{ secrets.QDRANT_BATCH_SIZE }}
+            QDRANT_MAX_RETRIES=${{ secrets.QDRANT_MAX_RETRIES }}
+
+            # ============================================================================
+            # Authentication & AI
+            # ============================================================================
             CLERK_SECRET_KEY=${{ secrets.CLERK_SECRET_KEY }}
             GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+
+            # ============================================================================
+            # Payment Providers
+            # ============================================================================
             RAZORPAY_KEY_ID=${{ secrets.RAZORPAY_KEY_ID }}
             RAZORPAY_KEY_SECRET=${{ secrets.RAZORPAY_KEY_SECRET }}
             RAZORPAY_WEBHOOK_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
             STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }}
             STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}
             STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }}
+
+            # ============================================================================
+            # Logging & Monitoring
+            # ============================================================================
+            LOG_LEVEL=${{ secrets.LOG_LEVEL }}
+            LOG_FORMAT=${{ secrets.LOG_FORMAT }}
+            ENABLE_FILE_LOGGING=${{ secrets.ENABLE_FILE_LOGGING }}
+            SLOW_REQUEST_THRESHOLD_SECONDS=${{ secrets.SLOW_REQUEST_THRESHOLD_SECONDS }}
+            SLOW_DATABASE_QUERY_THRESHOLD_MS=${{ secrets.SLOW_DATABASE_QUERY_THRESHOLD_MS }}
+
+            # ============================================================================
+            # Security & CORS
+            # ============================================================================
+            CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
+            EXPOSE_ERROR_DETAILS=${{ secrets.EXPOSE_ERROR_DETAILS }}
+            SUPPORT_EMAIL=${{ secrets.SUPPORT_EMAIL }}
+
+            # ============================================================================
+            # Docker
+            # ============================================================================
+            DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
             EOF
 
             # Pull latest images

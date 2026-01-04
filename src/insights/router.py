@@ -8,7 +8,7 @@ Endpoints:
 - POST /insights/{insight_id}/retry
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from typing import Annotated
@@ -25,6 +25,7 @@ from ..credits import schemas as credit_schemas
 from ..logging_config import get_logger
 from ..config import settings
 from ..error_handlers import NotFoundException
+from ..rate_limit import limiter, INSIGHT_UNLOCK_LIMIT, INSIGHT_UNLOCK_BURST, INSIGHT_READ_LIMIT
 
 router = APIRouter(prefix="/insights", tags=["insights"])
 logger = get_logger(__name__)
@@ -35,7 +36,10 @@ logger = get_logger(__name__)
 # ============================================================================
 
 @router.post("/unlock", response_model=credit_schemas.UnlockInsightsResponse)
+@limiter.limit(INSIGHT_UNLOCK_LIMIT)  # 10/hour - prevents abuse
+@limiter.limit(INSIGHT_UNLOCK_BURST)  # 3/minute - prevents rapid unlocks
 async def unlock_chat_insights(
+    http_request: Request,  # Required for rate limiting
     request: credit_schemas.UnlockInsightsRequest,
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: AsyncSession = Depends(get_async_db)

@@ -77,7 +77,16 @@ class Settings(BaseSettings):
     # Sentry DSN for error tracking (optional)
     SENTRY_DSN: str | None = None
     SENTRY_TRACES_SAMPLE_RATE: float = 0.1  # Sample 10% of transactions
-    
+
+    # CORS Configuration
+    CORS_ORIGINS: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:3000",  # Local development
+            "http://localhost:3001",  # Alternative local port
+        ]
+    )
+    # In production .env, set: CORS_ORIGINS=["https://relivchats.com","https://www.relivchats.com","https://app.relivchats.com","https://relivchats.mkpatidar.in","https://www.relivchats.mkpatidar.in","https://app.relivchats.in"]
+
     # Performance monitoring thresholds
     SLOW_REQUEST_THRESHOLD_SECONDS: float = 2.0
     SLOW_DATABASE_QUERY_THRESHOLD_MS: int = 1000

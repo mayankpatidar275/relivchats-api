@@ -1,7 +1,8 @@
 # src/main.py - UPDATED VERSION
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import time
 import asyncio
@@ -10,6 +11,8 @@ from .config import settings
 from .logging_config import setup_logging, get_logger
 from .error_handlers import register_exception_handlers
 from .middleware import register_middleware
+from .rate_limit import limiter, SlowAPIMiddleware, log_rate_limit_hit
+from slowapi.errors import RateLimitExceeded
 
 # Import routers
 from .users.router import router as users_router  
@@ -25,6 +28,45 @@ logger = get_logger(__name__)
 
 # Background task state
 _app_state = {"keepalive_task": None}
+
+
+def _scrub_sensitive_data(event: dict, hint: dict = None) -> dict:
+    """
+    Scrub sensitive data from Sentry events before sending.
+
+    Prevents leaking: API keys, passwords, credit card info, chat content, user PII.
+    """
+    # Scrub request data
+    if "request" in event:
+        request_data = event["request"]
+
+        # Scrub headers (Authorization, API keys, etc.)
+        if "headers" in request_data:
+            sensitive_headers = ["authorization", "cookie", "x-api-key", "razorpay", "stripe"]
+            for header in list(request_data["headers"].keys()):
+                if any(s in header.lower() for s in sensitive_headers):
+                    request_data["headers"][header] = "[REDACTED]"
+
+        # Scrub query params
+        if "query_string" in request_data:
+            request_data["query_string"] = "[REDACTED]"
+
+        # Scrub form data
+        if "data" in request_data:
+            sensitive_keys = ["password", "api_key", "secret", "token", "credit_card", "cvv"]
+            if isinstance(request_data["data"], dict):
+                for key in list(request_data["data"].keys()):
+                    if any(s in key.lower() for s in sensitive_keys):
+                        request_data["data"][key] = "[REDACTED]"
+
+    # Scrub extra context
+    if "extra" in event:
+        if "chat_content" in event["extra"]:
+            event["extra"]["chat_content"] = "[REDACTED - CHAT DATA]"
+        if "message_text" in event["extra"]:
+            event["extra"]["message_text"] = "[REDACTED - MESSAGE]"
+
+    return event
 
 
 async def _neon_keepalive():
@@ -109,24 +151,48 @@ async def lifespan(app: FastAPI):
         logger.info("✓ Neon keepalive task started (prevents Scale-to-Zero suspension)")
 
     # Initialize Sentry (if configured)
-    # if settings.SENTRY_DSN:
-    #     try:
-    #         import sentry_sdk
-    #         from sentry_sdk.integrations.fastapi import FastApiIntegration
-    #         from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
-            
-    #         sentry_sdk.init(
-    #             dsn=settings.SENTRY_DSN,
-    #             environment=settings.ENVIRONMENT,
-    #             traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
-    #             integrations=[
-    #                 FastApiIntegration(),
-    #                 SqlalchemyIntegration(),
-    #             ],
-    #         )
-    #         logger.info("✓ Sentry error tracking initialized")
-    #     except Exception as e:
-    #         logger.warning(f"⚠ Sentry initialization failed: {e}")
+    if settings.SENTRY_DSN:
+        try:
+            import sentry_sdk
+
+            sentry_sdk.init(
+                dsn=settings.SENTRY_DSN,
+                environment=settings.ENVIRONMENT,
+
+                # Enable sending request data (headers, IP) for better debugging
+                send_default_pii=True,
+
+                # Enable automatic log forwarding to Sentry
+                enable_logs=True,
+
+                # Performance monitoring (traces)
+                # Production: 10% sampling to reduce costs
+                # Development: 100% sampling for full visibility
+                traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+
+                # Profiling (CPU/memory performance)
+                # Production: 10% of traces
+                # Development: 100% of traces
+                profiles_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
+                profile_lifecycle="trace",  # Profile during active transactions
+
+                # Scrub sensitive data before sending to Sentry
+                before_send=lambda event, hint: _scrub_sensitive_data(event),
+            )
+
+            logger.info(
+                "✓ Sentry initialized",
+                extra={"extra_data": {
+                    "environment": settings.ENVIRONMENT,
+                    "traces_sample_rate": settings.SENTRY_TRACES_SAMPLE_RATE,
+                    "logs_enabled": True,
+                    "pii_enabled": True,
+                }}
+            )
+        except Exception as e:
+            logger.warning(f"⚠ Sentry initialization failed: {e}")
+    else:
+        logger.info("⚠ Sentry DSN not configured - error tracking disabled")
     
     logger.info("="*80)
     logger.info("🚀 RelivChats API is ready to accept requests")
@@ -171,19 +237,43 @@ app = FastAPI(
 # ============================================================================
 register_middleware(app)
 
-# CORS middleware
+# Rate limiting middleware (MUST be before CORS)
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
+# CORS middleware (Production: Whitelist specific domains)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS if hasattr(settings, 'CORS_ORIGINS') else ["*"],
+    allow_origins=settings.CORS_ORIGINS,  # Now required in config
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 # ============================================================================
 # REGISTER EXCEPTION HANDLERS
 # ============================================================================
 register_exception_handlers(app)
+
+# Rate limit exception handler
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    """Handle rate limit exceeded errors with user-friendly message"""
+    log_rate_limit_hit(request, str(exc.detail))
+
+    return JSONResponse(
+        status_code=429,
+        content={
+            "error": "rate_limit_exceeded",
+            "message": "Too many requests. Please slow down and try again later.",
+            "detail": str(exc.detail),
+        },
+        headers={
+            "Retry-After": "60",  # Suggest retry after 60 seconds
+        }
+    )
 
 # ============================================================================
 # REGISTER ROUTERS
@@ -225,6 +315,18 @@ async def root():
         "version": "1.0.0",
         "docs": "/docs"
     }
+
+@app.get("/sentry-debug")
+async def trigger_sentry_error():
+    """
+    Sentry verification endpoint - triggers a test error
+
+    IMPORTANT: Disable this in production or add authentication!
+    Visit https://api.relivchats.mkpatidar.in/sentry-debug to test Sentry
+    """
+    logger.info("Sentry debug endpoint called - triggering test error")
+    division_by_zero = 1 / 0  # This will trigger a ZeroDivisionError
+    return {"status": "This should never be reached"}
 
 # # Add this endpoint for emergency bulk indexing
 # @router.post("/admin/reindex-all")

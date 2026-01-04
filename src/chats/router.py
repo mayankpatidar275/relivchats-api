@@ -17,7 +17,7 @@ from typing import Annotated, List, Optional
 from uuid import UUID
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Form, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -36,6 +36,7 @@ from ..error_handlers import (
 from ..monitoring import track_operation
 from . import schemas, service, models
 from ..rag.models import Insight
+from ..rate_limit import limiter, UPLOAD_LIMIT, CHAT_READ_LIMIT
 
 logger = get_logger(__name__)
 
@@ -101,7 +102,9 @@ def _delete_chat_background(chat_id: str):
 # ============================================================================
 
 @router.post("/upload", response_model=schemas.ChatUploadResponse)
+@limiter.limit(UPLOAD_LIMIT)  # 20/hour - prevents spam uploads
 async def upload_whatsapp_file(
+    request: Request,  # Required for rate limiting
     file: Annotated[UploadFile, File(...)],
     user_id: Annotated[str, Depends(get_current_user_id)],
     category_id: Optional[str] = Form(None),

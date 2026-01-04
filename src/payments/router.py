@@ -13,6 +13,7 @@ from .schemas import (
 )
 from .base import PaymentProvider
 from ..config import settings
+from ..rate_limit import limiter, PAYMENT_CREATE_LIMIT, PAYMENT_WEBHOOK_LIMIT
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -34,7 +35,9 @@ def get_payment_service(db: AsyncSession = Depends(get_async_db)) -> PaymentServ
     return PaymentService(db, provider_configs)
 
 @router.post("/orders", response_model=CreateOrderResponse)
+@limiter.limit(PAYMENT_CREATE_LIMIT)  # 10/minute - prevents payment spam
 async def create_payment_order(
+    http_request: Request,  # Required for rate limiting
     request: CreateOrderRequest,
     user_id: str = Depends(get_current_user_id),
     payment_service: PaymentService = Depends(get_payment_service)

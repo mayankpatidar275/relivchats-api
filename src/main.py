@@ -324,17 +324,17 @@ async def root():
         "docs": "/docs"
     }
 
-@app.get("/sentry-debug")
-async def trigger_sentry_error():
-    """
-    Sentry verification endpoint - triggers a test error
+# @app.get("/sentry-debug")
+# async def trigger_sentry_error():
+#     """
+#     Sentry verification endpoint - triggers a test error
 
-    IMPORTANT: Disable this in production or add authentication!
-    Visit https://api.relivchats.mkpatidar.in/sentry-debug to test Sentry
-    """
-    logger.info("Sentry debug endpoint called - triggering test error")
-    division_by_zero = 1 / 0  # This will trigger a ZeroDivisionError
-    return {"status": "This should never be reached"}
+#     IMPORTANT: Disable this in production or add authentication!
+#     Visit https://api.relivchats.mkpatidar.in/sentry-debug to test Sentry
+#     """
+#     logger.info("Sentry debug endpoint called - triggering test error")
+#     division_by_zero = 1 / 0  # This will trigger a ZeroDivisionError
+#     return {"status": "This should never be reached"}
 
 # # Add this endpoint for emergency bulk indexing
 # @router.post("/admin/reindex-all")

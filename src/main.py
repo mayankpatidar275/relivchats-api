@@ -155,26 +155,34 @@ async def lifespan(app: FastAPI):
         try:
             import sentry_sdk
 
+            def traces_sampler(sampling_context):
+                """
+                Filter out health check and monitoring endpoints.
+                Returns 0 to ignore, or the configured sample rate to track.
+                """
+                transaction_name = sampling_context.get("transaction_context", {}).get("name", "")
+
+                # Ignore health checks and internal monitoring endpoints
+                if transaction_name in ["/health", "/health/db-pool", "/metrics"]:
+                    return 0  # Don't send to Sentry
+
+                # Use configured sample rate for everything else
+                return settings.SENTRY_TRACES_SAMPLE_RATE
+
             sentry_sdk.init(
                 dsn=settings.SENTRY_DSN,
                 environment=settings.ENVIRONMENT,
 
-                # Enable sending request data (headers, IP) for better debugging
-                send_default_pii=True,
+                # Performance monitoring with custom filtering
+                traces_sampler=traces_sampler,
 
-                # Enable automatic log forwarding to Sentry
-                enable_logs=True,
-
-                # Performance monitoring (traces)
-                # Production: 10% sampling to reduce costs
-                # Development: 100% sampling for full visibility
-                traces_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
-
-                # Profiling (CPU/memory performance)
-                # Production: 10% of traces
-                # Development: 100% of traces
+                # Profiling - captures performance data (CPU, memory)
+                # Only available in sentry-sdk >= 1.18.0
                 profiles_sample_rate=settings.SENTRY_TRACES_SAMPLE_RATE,
-                profile_lifecycle="trace",  # Profile during active transactions
+
+                # Send request data (URL, headers, body) for better debugging
+                # WARNING: This sends PII - ensure compliance with privacy laws
+                send_default_pii=True,
 
                 # Scrub sensitive data before sending to Sentry
                 before_send=lambda event, hint: _scrub_sensitive_data(event),

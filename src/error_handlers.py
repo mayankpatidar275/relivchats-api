@@ -259,9 +259,17 @@ def format_error_response(
 
 async def app_exception_handler(request: Request, exc: AppException) -> JSONResponse:
     """Handler for custom AppException errors"""
-    
+
     request_id = getattr(request.state, "request_id", None)
-    
+
+    # Send 5xx errors to Sentry (500-599 status codes indicate server errors)
+    # if exc.status_code >= 500:
+    #     try:
+    #         import sentry_sdk
+    #         sentry_sdk.capture_exception(exc)
+    #     except Exception:
+    #         pass
+
     # Log the error
     logger.error(
         f"Application error: {exc.message}",
@@ -336,9 +344,16 @@ async def sqlalchemy_exception_handler(
     exc: SQLAlchemyError
 ) -> JSONResponse:
     """Handler for SQLAlchemy database errors"""
-    
+
     request_id = getattr(request.state, "request_id", None)
-    
+
+    # Send to Sentry (database errors are critical!)
+    # try:
+    #     import sentry_sdk
+    #     sentry_sdk.capture_exception(exc)
+    # except Exception:
+    #     pass  # Don't crash if Sentry fails
+
     # Determine error type
     if isinstance(exc, IntegrityError):
         error_code = ErrorCode.INTEGRITY_ERROR
@@ -348,7 +363,7 @@ async def sqlalchemy_exception_handler(
         error_code = ErrorCode.DATABASE_ERROR
         message = "Database operation failed"
         status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-    
+
     # Log with full details
     logger.error(
         f"Database error: {str(exc)}",
@@ -386,9 +401,18 @@ async def generic_exception_handler(
     exc: Exception
 ) -> JSONResponse:
     """Catch-all handler for unexpected errors"""
-    
+
     request_id = getattr(request.state, "request_id", None)
-    
+
+    # ⚠️ CRITICAL: Send to Sentry BEFORE logging/returning response
+    # Without this, Sentry never sees the exception!
+    # try:
+    #     import sentry_sdk
+    #     sentry_sdk.capture_exception(exc)
+    # except Exception as sentry_error:
+    #     # If Sentry fails, don't crash the error handler
+    #     logger.debug(f"Failed to send exception to Sentry: {sentry_error}")
+
     # Log the full error with stack trace
     logger.critical(
         f"Unhandled exception: {str(exc)}",

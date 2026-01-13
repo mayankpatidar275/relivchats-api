@@ -379,12 +379,60 @@ class VectorService:
                 }
             )
 
-            # 2. Get all messages
-            messages = db.query(Message).filter(
-                Message.chat_id == chat_id
-            ).order_by(Message.timestamp).all()
+            # 2. Get all messages (batched to avoid connection timeout on large chats)
+            # Using cursor-based pagination with timestamp for fast sequential access
+            BATCH_SIZE = 5000
+            message_data = []
+            last_timestamp = None
+            batch_num = 0
 
-            if not messages:
+            logger.info(
+                "Starting batched message fetch for vector indexing",
+                extra={"extra_data": {"chat_id": str(chat_id), "batch_size": BATCH_SIZE}}
+            )
+
+            while True:
+                # Fetch one batch using cursor-based pagination (much faster than OFFSET)
+                query = db.query(Message).filter(Message.chat_id == chat_id)
+
+                # If we have a last timestamp, fetch messages after it
+                if last_timestamp is not None:
+                    query = query.filter(Message.timestamp > last_timestamp)
+
+                batch = query.order_by(Message.timestamp).limit(BATCH_SIZE).all()
+
+                if not batch:
+                    break
+
+                # Convert to dict to avoid detached instance issues
+                for msg in batch:
+                    message_data.append({
+                        'id': msg.id,
+                        'sender': msg.sender,
+                        'content': msg.content,
+                        'timestamp': msg.timestamp,
+                        'chat_id': msg.chat_id
+                    })
+
+                # Update cursor to last message's timestamp
+                last_timestamp = batch[-1].timestamp
+                batch_num += 1
+
+                logger.debug(
+                    f"Fetched batch {batch_num}",
+                    extra={"extra_data": {
+                        "chat_id": str(chat_id),
+                        "messages_fetched": len(message_data),
+                        "batch_size": len(batch),
+                        "last_timestamp": str(last_timestamp)
+                    }}
+                )
+
+                # If batch was smaller than BATCH_SIZE, we're done
+                if len(batch) < BATCH_SIZE:
+                    break
+
+            if not message_data:
                 logger.warning(
                     "No messages found for chat",
                     extra={"extra_data": {"chat_id": str(chat_id)}}
@@ -399,19 +447,9 @@ class VectorService:
                 return True
 
             logger.info(
-                f"Retrieved {len(messages)} messages for chunking",
-                extra={"extra_data": {"chat_id": str(chat_id), "message_count": len(messages)}}
+                f"Retrieved {len(message_data)} messages for chunking",
+                extra={"extra_data": {"chat_id": str(chat_id), "message_count": len(message_data)}}
             )
-
-            # Convert messages to dictionaries to avoid detached instance issues
-            # after we close the transaction
-            message_data = [{
-                'id': msg.id,
-                'sender': msg.sender,
-                'content': msg.content,
-                'timestamp': msg.timestamp,
-                'chat_id': msg.chat_id
-            } for msg in messages]
 
             # Close the transaction - don't hold DB connection during long operations
             db.commit()

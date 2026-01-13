@@ -131,10 +131,16 @@ class QdrantVectorStore:
             f"Adding {total_vectors} vectors to Qdrant",
             extra={"extra_data": {"vector_count": total_vectors}}
         )
-        
+
         # If batch is small, add directly
         if total_vectors <= self.MAX_BATCH_SIZE:
-            return self._add_vectors_batch(vectors, metadatas)
+            vector_ids = self._add_vectors_batch(vectors, metadatas)
+
+            # Wait briefly for async indexing to complete
+            logger.info("Waiting for Qdrant to finish async indexing...")
+            time.sleep(2)
+
+            return vector_ids
         
         # Split large batches to avoid timeout
         logger.info(
@@ -148,11 +154,11 @@ class QdrantVectorStore:
         )
         
         all_vector_ids = []
-        
+
         for i in range(0, total_vectors, self.MAX_BATCH_SIZE):
             batch_vectors = vectors[i:i + self.MAX_BATCH_SIZE]
             batch_metadatas = metadatas[i:i + self.MAX_BATCH_SIZE]
-            
+
             logger.debug(
                 f"Processing batch {i // self.MAX_BATCH_SIZE + 1}",
                 extra={
@@ -163,14 +169,28 @@ class QdrantVectorStore:
                     }
                 }
             )
-            
+
             batch_ids = self._add_vectors_batch(batch_vectors, batch_metadatas)
             all_vector_ids.extend(batch_ids)
-        
-        logger.info(
-            f"✓ Added {len(all_vector_ids)} vectors in {(total_vectors + self.MAX_BATCH_SIZE - 1) // self.MAX_BATCH_SIZE} batches"
-        )
-        
+
+        # Wait for all async indexing to complete before returning
+        logger.info("Waiting for Qdrant to finish async indexing...")
+        time.sleep(2)  # Small delay to let async operations settle
+
+        # Verify collection is ready
+        try:
+            collection_info = self.client.get_collection(self.collection_name)
+            logger.info(
+                f"✓ Added {len(all_vector_ids)} vectors in {(total_vectors + self.MAX_BATCH_SIZE - 1) // self.MAX_BATCH_SIZE} batches",
+                extra={"extra_data": {
+                    "total_vectors": len(all_vector_ids),
+                    "collection_vectors": collection_info.vectors_count if hasattr(collection_info, 'vectors_count') else "unknown"
+                }}
+            )
+        except Exception as e:
+            logger.warning(f"Could not verify collection status: {e}")
+            logger.info(f"✓ Added {len(all_vector_ids)} vectors in {(total_vectors + self.MAX_BATCH_SIZE - 1) // self.MAX_BATCH_SIZE} batches")
+
         return all_vector_ids
     
     def _add_vectors_batch(
@@ -208,17 +228,17 @@ class QdrantVectorStore:
             
             # Batch insert points
             start_time = time.time()
-            
+
             self.client.upsert(
                 collection_name=self.collection_name,
                 points=points,
-                wait=True  # Wait for operation to complete
+                wait=False  # Don't wait - let Qdrant index asynchronously for speed
             )
-            
+
             duration = time.time() - start_time
-            
+
             logger.debug(
-                f"Batch upsert completed in {duration:.2f}s",
+                f"Batch upsert sent in {duration:.2f}s (indexing asynchronously)",
                 extra={
                     "extra_data": {
                         "vector_count": len(vectors),

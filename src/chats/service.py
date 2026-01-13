@@ -585,15 +585,16 @@ def extract_txt_from_zip(zip_path: str) -> Optional[str]:
 @track_time("save_messages_to_db")
 def save_messages_to_db(db: Session, chat_id: UUID, whatstk_chat) -> int:
     """Save parsed messages to database and return count"""
-    
+
     logger.debug(
         "Saving messages to database",
         extra={"extra_data": {"chat_id": str(chat_id)}}
     )
-    
+
     try:
         messages = []
-        
+
+        # Build Message objects
         for _, row in whatstk_chat.df.iterrows():
             message = models.Message(
                 id=str(uuid.uuid4()),
@@ -603,24 +604,45 @@ def save_messages_to_db(db: Session, chat_id: UUID, whatstk_chat) -> int:
                 timestamp=row['date']
             )
             messages.append(message)
-        
-        # Bulk insert
+
+        # Bulk insert with batched commits to keep connection alive
+        BATCH_SIZE = 5000
+        total_batches = (len(messages) + BATCH_SIZE - 1) // BATCH_SIZE
+
         with track_operation("bulk_insert_messages", message_count=len(messages)):
-            db.bulk_save_objects(messages)
-            db.commit()
-        
+            for i in range(0, len(messages), BATCH_SIZE):
+                batch = messages[i:i+BATCH_SIZE]
+                batch_number = i // BATCH_SIZE + 1
+
+                db.bulk_save_objects(batch)
+                db.commit()  # Commit each batch to prevent connection timeout
+
+                logger.debug(
+                    f"Saved batch {batch_number}/{total_batches}",
+                    extra={
+                        "extra_data": {
+                            "chat_id": str(chat_id),
+                            "batch_number": batch_number,
+                            "total_batches": total_batches,
+                            "messages_in_batch": len(batch),
+                            "total_saved": min(i + BATCH_SIZE, len(messages))
+                        }
+                    }
+                )
+
         logger.info(
             f"Saved {len(messages)} messages to database",
             extra={
                 "extra_data": {
                     "chat_id": str(chat_id),
-                    "message_count": len(messages)
+                    "message_count": len(messages),
+                    "batches_processed": total_batches
                 }
             }
         )
-        
+
         return len(messages)
-    
+
     except SQLAlchemyError as e:
         db.rollback()
         logger.error(
@@ -677,10 +699,10 @@ def process_whatsapp_file(
                 }
             }
         )
-        
+
         # Save messages to database
         message_count = save_messages_to_db(db, chat_id, whatstk_chat)
-        
+
         # Update chat with parsed information
         chat.title = title
         chat.participants = json.dumps(participants)
@@ -689,10 +711,11 @@ def process_whatsapp_file(
         chat.chat_metadata = metadata
         chat.status = "completed"
         chat.error_log = None  # Clear any previous errors
-        
+
         db.commit()
-        db.refresh(chat)
-        
+        # Skip refresh to avoid connection timeout on large uploads
+        # All fields are already set on the chat object
+
         logger.info(
             "Chat processing completed successfully",
             extra={
@@ -1084,7 +1107,7 @@ def compute_chat_metadata(chat: whatstk.WhatsAppChat, participants: List[str]) -
         
         # Media and links
         all_links = []
-        for idx, row in df.iterrows():
+        for _, row in df.iterrows():
             links = extract_links(row['message'])
             for link in links:
                 all_links.append({

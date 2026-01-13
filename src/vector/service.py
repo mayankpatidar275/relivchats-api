@@ -13,6 +13,7 @@ Key improvements:
 import uuid
 from uuid import UUID
 import json
+import time
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -174,6 +175,12 @@ class VectorService:
                         f"Batch embedding progress: {batch_num}/{total_batches} batches ({len(all_embeddings)}/{len(texts)} embeddings)"
                     )
 
+                # Add small delay between batches to avoid hitting TPM quota
+                # With 100 texts/batch * ~4 tokens/text = 400 tokens per batch
+                # At 1M TPM, we can do ~2500 batches/min, but add delay for safety
+                if batch_num < total_batches:  # Don't delay after last batch
+                    time.sleep(2)  # 2 second delay between successful batches
+
             except ExternalServiceException as e:
                 logger.error(
                     f"Batch {batch_num}/{total_batches} failed after retries",
@@ -198,21 +205,25 @@ class VectorService:
 
         if failed_batches:
             logger.warning(
-                f"Batch embedding completed with failures",
+                "Batch embedding completed with failures",
                 extra={
                     "extra_data": {
                         "total_texts": len(texts),
                         "failed_batches": failed_batches,
+                        "failed_count": failed_count,
+                        "success_count": success_count,
                         "success_rate": f"{success_rate:.1f}%"
                     }
                 }
             )
 
-            # If too many failures, raise exception
-            if success_rate < 50:
+            # If too many failures, raise exception (require 80% success minimum)
+            # We cannot proceed with partial embeddings - insights would be incomplete
+            if success_rate < 80:
                 raise ExternalServiceException(
                     service_name="Gemini Embedding API",
-                    message=f"Batch embedding critically failed: only {success_rate:.1f}% success rate",
+                    message=f"Batch embedding failed: only {success_rate:.1f}% success rate (minimum 80% required). "
+                            f"Failed batches: {failed_batches}. This often indicates quota limits - try again in 1 minute.",
                     error_code=ErrorCode.GEMINI_API_ERROR
                 )
         else:
@@ -251,8 +262,6 @@ class VectorService:
         Raises:
             ExternalServiceException: If all retries fail
         """
-        import time
-
         for attempt in range(retry_count):
             try:
                 logger.debug(
@@ -297,7 +306,15 @@ class VectorService:
 
             except Exception as e:
                 error_msg = str(e)
-                is_quota_error = "quota" in error_msg.lower() or "rate limit" in error_msg.lower()
+                # Detect quota/rate limit errors (including 429, RESOURCE_EXHAUSTED, TPM/RPM)
+                is_quota_error = any([
+                    "quota" in error_msg.lower(),
+                    "rate limit" in error_msg.lower(),
+                    "429" in error_msg,
+                    "resource_exhausted" in error_msg.lower(),
+                    "tpm" in error_msg.lower(),  # Tokens per minute
+                    "rpm" in error_msg.lower(),  # Requests per minute
+                ])
 
                 logger.warning(
                     f"Batch {batch_num}/{total_batches} attempt {attempt + 1} failed: {error_msg}",
@@ -323,13 +340,25 @@ class VectorService:
                         error_code=ErrorCode.GEMINI_API_ERROR
                     )
 
-                # Exponential backoff with jitter
-                wait_time = (2 ** attempt) + (attempt * 0.5)
-
-                # Longer wait for quota errors
+                # Handle quota errors specially (TPM resets every minute)
                 if is_quota_error:
-                    wait_time *= 2
-                    logger.info(f"Quota error detected, waiting {wait_time:.1f}s before retry")
+                    # TPM (tokens per minute) quota resets every 60 seconds
+                    # Wait longer to allow quota to reset
+                    if attempt == 0:
+                        wait_time = 15  # First retry: 15s
+                    elif attempt == 1:
+                        wait_time = 30  # Second retry: 30s
+                    else:
+                        wait_time = 60  # Third+ retry: full 60s for quota reset
+
+                    logger.info(
+                        f"Quota error detected (TPM limit), waiting {wait_time}s for quota reset before retry",
+                        extra={"extra_data": {"attempt": attempt + 1, "wait_seconds": wait_time}}
+                    )
+                else:
+                    # Exponential backoff for other errors
+                    wait_time = (2 ** attempt) + (attempt * 0.5)
+                    logger.info(f"Temporary error, waiting {wait_time:.1f}s before retry")
 
                 time.sleep(wait_time)
     

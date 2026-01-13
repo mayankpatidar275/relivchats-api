@@ -556,6 +556,47 @@ Ensure these are set in production:
 
 ---
 
-**Last Updated**: November 2025
+## Production Monitoring & Debugging
+
+For production monitoring, debugging, and incident response, see:
+
+### 📚 [PRODUCTION_MONITORING.md](./PRODUCTION_MONITORING.md)
+Comprehensive guide covering:
+- Docker service management & log viewing
+- Database monitoring queries
+- Celery worker inspection
+- Redis & Qdrant health checks
+- Performance monitoring
+- Troubleshooting common issues
+
+### ⚡ [QUICK_REFERENCE.md](./QUICK_REFERENCE.md)
+One-page cheat sheet with copy-paste commands:
+- Emergency commands (restart, health checks)
+- Daily health check routine (30 seconds)
+- Common log searches
+- Troubleshooting specific issues
+
+**Most common production commands:**
+```bash
+# Follow API logs in real-time
+docker-compose logs -f relivchats-api
+
+# Check last 100 errors
+docker-compose logs relivchats-api | grep ERROR | tail -100
+
+# Health check
+curl http://localhost:8000/health | jq .
+
+# Restart services
+docker-compose restart relivchats-api
+docker-compose restart celery_worker
+
+# Check Celery worker status
+docker exec celery_worker celery -A src.celery_app inspect active
+```
+
+---
+
+**Last Updated**: January 2026
 **Key Tech**: FastAPI, PostgreSQL, Celery, Qdrant, Google Gemini, Clerk
 **Status**: Active Development (V1)

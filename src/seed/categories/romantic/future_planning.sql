@@ -339,12 +339,12 @@ Provide insights on:
 );
 
 -- Link to romantic category
--- INSERT INTO public.category_insight_types
--- (id, category_id, insight_type_id, display_order, created_at)
--- VALUES(
---   gen_random_uuid(),
---   (SELECT id FROM analysis_categories WHERE name = 'romantic'),
---   (SELECT id FROM insight_types WHERE name = 'future_planning'),
---   5,
---   NOW()
--- );
+INSERT INTO public.category_insight_types
+(id, category_id, insight_type_id, display_order, created_at)
+VALUES(
+  gen_random_uuid(),
+  (SELECT id FROM analysis_categories WHERE name = 'romantic'),
+  (SELECT id FROM insight_types WHERE name = 'future_planning'),
+  5,
+  NOW()
+);

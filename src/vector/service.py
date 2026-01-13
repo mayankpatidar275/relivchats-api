@@ -113,57 +113,225 @@ class VectorService:
                 time.sleep(2 ** attempt)
     
     def generate_embeddings_batch(
-        self, 
+        self,
         texts: List[str],
-        batch_size: int = 10
+        batch_size: int = None
     ) -> List[List[float]]:
         """
-        Generate embeddings for multiple texts with batching
-        
+        Generate embeddings for multiple texts using true batching
+
+        Gemini API supports batching multiple texts in a single request,
+        drastically reducing API calls and quota usage.
+
         Args:
             texts: List of texts to embed
-            batch_size: Number of texts to process at once
-        
+            batch_size: Number of texts per API call (max 100 for Gemini)
+
         Returns:
-            List of embeddings
+            List of embeddings (same order as input texts)
+
+        Raises:
+            ExternalServiceException: If batch embedding fails critically
         """
+        if not texts:
+            return []
+
+        # Use configured batch size if not provided
+        if batch_size is None:
+            batch_size = settings.GEMINI_EMBEDDING_BATCH_SIZE
+
         logger.info(
-            f"Generating embeddings batch",
-            extra={"extra_data": {"total_texts": len(texts), "batch_size": batch_size}}
+            "Starting batch embedding generation",
+            extra={
+                "extra_data": {
+                    "total_texts": len(texts),
+                    "batch_size": batch_size,
+                    "estimated_api_calls": (len(texts) + batch_size - 1) // batch_size
+                }
+            }
         )
-        
-        embeddings = []
-        failed_indices = []
-        
-        for i, text in enumerate(texts):
+
+        all_embeddings = []
+        failed_batches = []
+        total_batches = (len(texts) + batch_size - 1) // batch_size
+
+        # Process in batches
+        for batch_idx in range(0, len(texts), batch_size):
+            batch_texts = texts[batch_idx:batch_idx + batch_size]
+            batch_num = (batch_idx // batch_size) + 1
+
             try:
-                embedding = self.generate_embedding(text)
-                embeddings.append(embedding)
-                
-                # Log progress every 10 embeddings
-                if (i + 1) % 10 == 0:
-                    logger.debug(f"Generated {i + 1}/{len(texts)} embeddings")
-                    
-            except Exception as e:
-                logger.error(
-                    f"Failed to generate embedding for text {i}: {str(e)}",
-                    extra={"extra_data": {"text_index": i}}
+                embeddings = self._generate_batch_with_retry(
+                    batch_texts,
+                    batch_num=batch_num,
+                    total_batches=total_batches
                 )
-                failed_indices.append(i)
-                # Add zero vector as placeholder
-                embeddings.append([0.0] * settings.QDRANT_VECTOR_SIZE)
-        
-        if failed_indices:
+                all_embeddings.extend(embeddings)
+
+                # Log progress periodically
+                if batch_num % 5 == 0 or batch_num == total_batches:
+                    logger.info(
+                        f"Batch embedding progress: {batch_num}/{total_batches} batches ({len(all_embeddings)}/{len(texts)} embeddings)"
+                    )
+
+            except ExternalServiceException as e:
+                logger.error(
+                    f"Batch {batch_num}/{total_batches} failed after retries",
+                    extra={
+                        "extra_data": {
+                            "batch_start_idx": batch_idx,
+                            "batch_size": len(batch_texts),
+                            "error": str(e)
+                        }
+                    }
+                )
+                failed_batches.append(batch_num)
+
+                # Add zero vectors for failed batch
+                zero_vector = [0.0] * settings.QDRANT_VECTOR_SIZE
+                all_embeddings.extend([zero_vector] * len(batch_texts))
+
+        # Calculate success metrics
+        failed_count = len(failed_batches) * batch_size
+        success_count = len(texts) - failed_count
+        success_rate = (success_count / len(texts)) * 100 if texts else 0
+
+        if failed_batches:
             logger.warning(
-                f"Failed to generate {len(failed_indices)} embeddings",
-                extra={"extra_data": {"failed_indices": failed_indices}}
+                f"Batch embedding completed with failures",
+                extra={
+                    "extra_data": {
+                        "total_texts": len(texts),
+                        "failed_batches": failed_batches,
+                        "success_rate": f"{success_rate:.1f}%"
+                    }
+                }
             )
-        
-        logger.info(
-            f"Batch embedding complete: {len(embeddings) - len(failed_indices)}/{len(texts)} successful"
-        )
-        
-        return embeddings
+
+            # If too many failures, raise exception
+            if success_rate < 50:
+                raise ExternalServiceException(
+                    service_name="Gemini Embedding API",
+                    message=f"Batch embedding critically failed: only {success_rate:.1f}% success rate",
+                    error_code=ErrorCode.GEMINI_API_ERROR
+                )
+        else:
+            logger.info(
+                f"✓ Batch embedding completed successfully",
+                extra={
+                    "extra_data": {
+                        "total_texts": len(texts),
+                        "total_api_calls": total_batches,
+                        "reduction_factor": f"{len(texts) / total_batches:.1f}x"
+                    }
+                }
+            )
+
+        return all_embeddings
+
+    def _generate_batch_with_retry(
+        self,
+        batch_texts: List[str],
+        batch_num: int,
+        total_batches: int,
+        retry_count: int = 3
+    ) -> List[List[float]]:
+        """
+        Generate embeddings for a batch with retry logic
+
+        Args:
+            batch_texts: List of texts in this batch
+            batch_num: Current batch number (for logging)
+            total_batches: Total number of batches (for logging)
+            retry_count: Number of retry attempts
+
+        Returns:
+            List of embeddings for the batch
+
+        Raises:
+            ExternalServiceException: If all retries fail
+        """
+        import time
+
+        for attempt in range(retry_count):
+            try:
+                logger.debug(
+                    f"Processing batch {batch_num}/{total_batches} (attempt {attempt + 1}/{retry_count})",
+                    extra={
+                        "extra_data": {
+                            "batch_size": len(batch_texts),
+                            "avg_text_length": sum(len(t) for t in batch_texts) // len(batch_texts)
+                        }
+                    }
+                )
+
+                # Make batched API call
+                resp = _client.models.embed_content(
+                    model=self.embedding_model,
+                    contents=batch_texts,  # Multiple texts in one call!
+                    config=types.EmbedContentConfig(
+                        task_type="semantic_similarity"
+                    ),
+                )
+
+                # Extract embeddings
+                embeddings = [list(emb.values) for emb in resp.embeddings]
+
+                # Validate response
+                if len(embeddings) != len(batch_texts):
+                    raise ValueError(
+                        f"Embedding count mismatch: got {len(embeddings)}, expected {len(batch_texts)}"
+                    )
+
+                logger.debug(
+                    f"Batch {batch_num}/{total_batches} completed",
+                    extra={
+                        "extra_data": {
+                            "embeddings_count": len(embeddings),
+                            "vector_dimension": len(embeddings[0]) if embeddings else 0
+                        }
+                    }
+                )
+
+                return embeddings
+
+            except Exception as e:
+                error_msg = str(e)
+                is_quota_error = "quota" in error_msg.lower() or "rate limit" in error_msg.lower()
+
+                logger.warning(
+                    f"Batch {batch_num}/{total_batches} attempt {attempt + 1} failed: {error_msg}",
+                    extra={
+                        "extra_data": {
+                            "batch_size": len(batch_texts),
+                            "is_quota_error": is_quota_error,
+                            "will_retry": attempt < retry_count - 1
+                        }
+                    }
+                )
+
+                if attempt == retry_count - 1:
+                    # Final attempt failed
+                    logger.error(
+                        f"Batch {batch_num}/{total_batches} failed after {retry_count} attempts",
+                        extra={"extra_data": {"error": error_msg}},
+                        exc_info=True
+                    )
+                    raise ExternalServiceException(
+                        service_name="Gemini Embedding API",
+                        message=f"Batch embedding failed after {retry_count} attempts: {error_msg}",
+                        error_code=ErrorCode.GEMINI_API_ERROR
+                    )
+
+                # Exponential backoff with jitter
+                wait_time = (2 ** attempt) + (attempt * 0.5)
+
+                # Longer wait for quota errors
+                if is_quota_error:
+                    wait_time *= 2
+                    logger.info(f"Quota error detected, waiting {wait_time:.1f}s before retry")
+
+                time.sleep(wait_time)
     
     def create_chat_chunks(self, db: Session, chat_id: UUID) -> bool:
         """

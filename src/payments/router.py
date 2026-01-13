@@ -1,5 +1,5 @@
 # src/payments/router.py
-from fastapi import APIRouter, Depends, HTTPException, Request, Header
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -37,8 +37,9 @@ def get_payment_service(db: AsyncSession = Depends(get_async_db)) -> PaymentServ
 @router.post("/orders", response_model=CreateOrderResponse)
 @limiter.limit(PAYMENT_CREATE_LIMIT)  # 10/minute - prevents payment spam
 async def create_payment_order(
-    http_request: Request,  # Required for rate limiting
-    request: CreateOrderRequest,
+    request: Request,  # Required for rate limiting (must be named 'request')
+    response: Response,  # Required for slowapi to inject rate limit headers
+    payload: CreateOrderRequest,  # Renamed to avoid conflict
     user_id: str = Depends(get_current_user_id),
     payment_service: PaymentService = Depends(get_payment_service)
 ):
@@ -50,13 +51,13 @@ async def create_payment_order(
     """
     try:
         from ..credits.service import CreditService
-        package = await CreditService.get_package_async(payment_service.db, request.package_id)
+        package = await CreditService.get_package_async(payment_service.db, payload.package_id)
 
         if not package:
             raise HTTPException(status_code=404, detail="Package not found")
-        
+
         # Determine amount based on currency and provider
-        if request.provider == PaymentProvider.RAZORPAY:
+        if payload.provider == PaymentProvider.RAZORPAY:
             # Razorpay: INR in paise
             amount = int(package.price_inr * 100)
             currency = "INR"
@@ -64,15 +65,15 @@ async def create_payment_order(
             # Stripe: USD in cents
             amount = int(package.price_usd * 100)
             currency = "USD"
-        
+
         order = await payment_service.create_order(
             user_id=user_id,
             package_id=str(package.id),
             amount=amount,
             currency=currency,
             coins=package.coins,
-            provider=request.provider,
-            idempotency_key=request.idempotency_key
+            provider=payload.provider,
+            idempotency_key=payload.idempotency_key
         )
         
         return CreateOrderResponse(

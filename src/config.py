@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str
     GEMINI_EMBEDDING_MODEL: str = "gemini-embedding-001"
     GEMINI_LLM_MODEL: str = "gemini-2.5-flash"
+    GEMINI_EMBEDDING_BATCH_SIZE: int = 100  # Number of texts per embedding API call
     
     # Chunking Settings
     MAX_CHUNK_SIZE: int = 1000  # Maximum tokens per chunk

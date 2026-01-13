@@ -8,7 +8,7 @@ Endpoints:
 - POST /insights/{insight_id}/retry
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
 from typing import Annotated
@@ -39,8 +39,9 @@ logger = get_logger(__name__)
 @limiter.limit(INSIGHT_UNLOCK_LIMIT)  # 10/hour - prevents abuse
 @limiter.limit(INSIGHT_UNLOCK_BURST)  # 3/minute - prevents rapid unlocks
 async def unlock_chat_insights(
-    http_request: Request,  # Required for rate limiting
-    request: credit_schemas.UnlockInsightsRequest,
+    request: Request,  # Required for rate limiting (must be named 'request')
+    response: Response,  # Required for slowapi to inject rate limit headers
+    payload: credit_schemas.UnlockInsightsRequest,  # Renamed to avoid conflict
     user_id: Annotated[str, Depends(get_current_user_id)],
     db: AsyncSession = Depends(get_async_db)
 ):
@@ -68,18 +69,18 @@ async def unlock_chat_insights(
         extra={
             "user_id": user_id,
             "extra_data": {
-                "chat_id": str(request.chat_id),
-                "category_id": str(request.category_id)
+                "chat_id": str(payload.chat_id),
+                "category_id": str(payload.category_id)
             }
         }
     )
-    
+
     try:
         result = await CreditService.unlock_insights_for_category(
             db=db,
             user_id=user_id,
-            chat_id=request.chat_id,
-            category_id=request.category_id
+            chat_id=payload.chat_id,
+            category_id=payload.category_id
         )
         
         return credit_schemas.UnlockInsightsResponse(**result)
@@ -90,7 +91,7 @@ async def unlock_chat_insights(
             extra={
                 "user_id": user_id,
                 "extra_data": {
-                    "chat_id": str(request.chat_id),
+                    "chat_id": str(payload.chat_id),
                     "error": str(e)
                 }
             }

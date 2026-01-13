@@ -832,87 +832,129 @@ class CreditService:
         user_id: str
     ):
         """
-        Ensure chat is indexed before generating insights
-        
-        This is synchronous (blocks for 1-3 seconds) but necessary
-        to ensure vectors are ready for RAG.
+        Ensure chat indexing is started (non-blocking)
+
+        NEW BEHAVIOR:
+        - If pending: Queue background indexing task
+        - If indexing: Already in progress
+        - If failed: Raise error
+        - If completed: Nothing to do
+
+        The orchestration task will wait for indexing to complete before
+        starting insight generation. No schema changes needed!
         """
         logger.info(
-            f"Chat not indexed. Status: {chat.vector_status}",
+            f"Checking chat indexing status: {chat.vector_status}",
             extra={
                 "user_id": user_id,
-                "extra_data": {"chat_id": str(chat.id)}
+                "extra_data": {"chat_id": str(chat.id), "vector_status": chat.vector_status}
             }
         )
-        
-        if chat.vector_status == "indexing":
-            raise AppException(
-                message="Chat is currently being indexed. Please wait.",
-                error_code=ErrorCode.VALIDATION_ERROR,
-                status_code=409
-            )
-        
-        # if chat.vector_status == "failed":
-        #     raise AppException(
-        #         message="Chat indexing failed. Please re-upload or contact support.",
-        #         error_code=ErrorCode.VECTOR_INDEXING_FAILED,
-        #         status_code=400
-        #     )
-        
-        # Vector status is "pending" - trigger indexing NOW
-        logger.info(
-            "Triggering synchronous vector indexing",
-            extra={
-                "user_id": user_id,
-                "extra_data": {"chat_id": str(chat.id)}
-            }
-        )
-        
-        try:
-            # Import here to avoid circular dependency
-            from ..vector.service import vector_service
-            
-            # SYNCHRONOUS indexing (blocks for 1-3 seconds)
-            # We need a sync Session for vector_service
-            from ..database import SessionLocal
-            sync_db = SessionLocal()
-            try:
-                success = vector_service.create_chat_chunks(sync_db, chat.id)
-                
-                if not success:
-                    raise ExternalServiceException(
-                        "Vector Database",
-                        "Failed to index chat",
-                        error_code=ErrorCode.VECTOR_INDEXING_FAILED
-                    )
-                
-                # Refresh chat to get updated vector_status
-                await db.refresh(chat)
-                
-                logger.info(
-                    "Vector indexing completed",
-                    extra={
-                        "user_id": user_id,
-                        "extra_data": {"chat_id": str(chat.id)}
-                    }
-                )
-            finally:
-                sync_db.close()
-                
-        except Exception as e:
-            logger.error(
-                f"Indexing failed: {str(e)}",
+
+        if chat.vector_status == "failed":
+            # Previous indexing attempt failed
+            logger.warning(
+                "Chat indexing previously failed",
                 extra={
                     "user_id": user_id,
                     "extra_data": {"chat_id": str(chat.id)}
-                },
-                exc_info=True
+                }
             )
-            raise ExternalServiceException(
-                "Vector Database",
-                f"Failed to prepare chat: {str(e)}",
-                error_code=ErrorCode.VECTOR_INDEXING_FAILED
+
+            raise AppException(
+                message="Chat indexing failed previously. Please re-upload the chat or contact support.",
+                error_code=ErrorCode.VECTOR_INDEXING_FAILED,
+                status_code=400
             )
+
+        if chat.vector_status == "pending":
+            # Queue background indexing task (non-blocking!)
+            logger.info(
+                "Queuing background vector indexing task",
+                extra={
+                    "user_id": user_id,
+                    "extra_data": {"chat_id": str(chat.id)}
+                }
+            )
+
+            try:
+                # Import here to avoid circular dependency
+                from ..vector.tasks import index_chat_vectors
+
+                # Queue Celery task (returns immediately)
+                task_result = index_chat_vectors.delay(str(chat.id), user_id)
+
+                # Update status to prevent duplicate task queueing
+                chat.vector_status = "indexing"
+                await db.commit()
+
+                logger.info(
+                    "Vector indexing task queued successfully",
+                    extra={
+                        "user_id": user_id,
+                        "extra_data": {
+                            "chat_id": str(chat.id),
+                            "task_id": task_result.id
+                        }
+                    }
+                )
+
+                # Log business event
+                log_business_event(
+                    "vector_indexing_queued",
+                    user_id=user_id,
+                    extra_data={
+                        "chat_id": str(chat.id),
+                        "task_id": task_result.id
+                    }
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to queue indexing task: {str(e)}",
+                    extra={
+                        "user_id": user_id,
+                        "extra_data": {"chat_id": str(chat.id)}
+                    },
+                    exc_info=True
+                )
+
+                # Reset status back to pending
+                chat.vector_status = "pending"
+                await db.commit()
+
+                raise ExternalServiceException(
+                    "Vector Database",
+                    f"Failed to start chat indexing: {str(e)}",
+                    error_code=ErrorCode.VECTOR_INDEXING_FAILED
+                )
+
+        elif chat.vector_status == "indexing":
+            # Already indexing from previous unlock attempt or upload
+            logger.info(
+                "Chat is already being indexed",
+                extra={
+                    "user_id": user_id,
+                    "extra_data": {"chat_id": str(chat.id)}
+                }
+            )
+            # Don't raise error - just let the job wait for it
+
+        elif chat.vector_status == "completed":
+            # Already indexed, nothing to do
+            logger.info(
+                "Chat already indexed",
+                extra={
+                    "user_id": user_id,
+                    "extra_data": {
+                        "chat_id": str(chat.id),
+                        "indexed_at": str(chat.indexed_at)
+                    }
+                }
+            )
+
+        # In all cases (pending/indexing/completed), we proceed to create the job
+        # The orchestration task will handle waiting for indexing if needed
 
 
     @classmethod

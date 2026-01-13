@@ -148,7 +148,103 @@ def orchestrate_insight_generation(self, job_id: str):
                 "Job marked as started",
                 extra={"extra_data": {"job_id": job_id}}
             )
-            
+
+            # Step 0: Wait for vector indexing to complete (if needed)
+            # This is the NEW step that handles background indexing
+            job = orchestrator._get_job(job_id)
+            chat = db.query(Chat).filter(Chat.id == job.chat_id).first()
+
+            if chat.vector_status != "completed":
+                logger.info(
+                    "Waiting for chat vector indexing to complete",
+                    extra={"extra_data": {
+                        "job_id": job_id,
+                        "chat_id": str(chat.id),
+                        "current_status": chat.vector_status
+                    }}
+                )
+
+                # Poll chat.vector_status until completed (with timeout)
+                indexing_wait_start = time.time()
+                max_wait_seconds = 600  # 10 minutes timeout for indexing
+                poll_interval_seconds = 10  # Check every 10 seconds
+
+                while chat.vector_status != "completed":
+                    # Check timeout
+                    elapsed = time.time() - indexing_wait_start
+                    if elapsed > max_wait_seconds:
+                        logger.error(
+                            "Indexing timeout exceeded",
+                            extra={"extra_data": {
+                                "job_id": job_id,
+                                "chat_id": str(chat.id),
+                                "elapsed_seconds": int(elapsed),
+                                "timeout_seconds": max_wait_seconds,
+                                "final_status": chat.vector_status
+                            }}
+                        )
+
+                        job.status = "failed"
+                        job.error_message = f"Chat indexing timeout after {int(elapsed)}s (status: {chat.vector_status})"
+                        db.commit()
+
+                        raise Exception(f"Chat indexing timeout after {int(elapsed)} seconds")
+
+                    # Check if indexing failed
+                    if chat.vector_status == "failed":
+                        logger.error(
+                            "Chat indexing failed",
+                            extra={"extra_data": {
+                                "job_id": job_id,
+                                "chat_id": str(chat.id)
+                            }}
+                        )
+
+                        job.status = "failed"
+                        job.error_message = "Chat vector indexing failed"
+                        db.commit()
+
+                        raise Exception("Chat vector indexing failed")
+
+                    # Still indexing - wait and poll again
+                    logger.debug(
+                        f"Chat still indexing, waiting {poll_interval_seconds}s...",
+                        extra={"extra_data": {
+                            "job_id": job_id,
+                            "chat_id": str(chat.id),
+                            "elapsed_seconds": int(elapsed),
+                            "current_status": chat.vector_status
+                        }}
+                    )
+
+                    time.sleep(poll_interval_seconds)
+
+                    # Refresh chat status from database
+                    db.refresh(chat)
+
+                # Indexing completed!
+                indexing_wait_duration = time.time() - indexing_wait_start
+                logger.info(
+                    "✓ Chat indexing completed, proceeding with insight generation",
+                    extra={"extra_data": {
+                        "job_id": job_id,
+                        "chat_id": str(chat.id),
+                        "wait_duration_seconds": round(indexing_wait_duration, 2),
+                        "chunk_count": chat.chunk_count
+                    }}
+                )
+
+            else:
+                # Already indexed
+                logger.info(
+                    "Chat already indexed, proceeding directly to insight generation",
+                    extra={"extra_data": {
+                        "job_id": job_id,
+                        "chat_id": str(chat.id),
+                        "chunk_count": chat.chunk_count
+                    }}
+                )
+
             # Step 1: Extract shared context (expensive, do once)
             logger.info(
                 "Extracting shared RAG context",

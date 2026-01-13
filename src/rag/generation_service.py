@@ -58,11 +58,39 @@ class InsightGenerationOrchestrator:
         insight_types: List[CategoryInsightType]
     ) -> InsightGenerationJob:
         """Create generation job record"""
-        
-        # Estimate completion time (7s per insight avg)
+
+        # Get chat to check indexing status
+        result = await self.db.execute(
+            select(Chat).where(Chat.id == chat_id)
+        )
+        chat = result.scalar_one_or_none()
+
+        # Estimate completion time
         total_insights = len(insight_types)
-        # estimated_seconds = (total_insights / settings.MAX_CONCURRENT_INSIGHTS) * 7
-        estimated_seconds = (total_insights / 1) * 10
+        # Base time: 10s per insight (sequential generation)
+        insight_generation_seconds = total_insights * 10
+
+        # Add indexing time if chat needs indexing
+        indexing_seconds = 0
+        if chat and chat.vector_status != "completed":
+            # Indexing takes ~5 minutes (300 seconds) on average
+            # - Message fetch: 10s (with cursor pagination)
+            # - Chunking: 10s
+            # - Embedding: 3-4 min (with quota retries)
+            # - Qdrant upload: 15s
+            indexing_seconds = 300
+            logger.info(
+                f"Chat needs indexing, adding {indexing_seconds}s to estimate",
+                extra={
+                    "user_id": user_id,
+                    "extra_data": {
+                        "chat_id": str(chat_id),
+                        "vector_status": chat.vector_status
+                    }
+                }
+            )
+
+        estimated_seconds = indexing_seconds + insight_generation_seconds
         estimated_completion = datetime.now(timezone.utc) + timedelta(seconds=estimated_seconds)
         
         job = InsightGenerationJob(
@@ -78,13 +106,8 @@ class InsightGenerationOrchestrator:
         self.db.add(job)
         await self.db.commit()
         await self.db.refresh(job)
-        
-        # Update chat status
-        result = await self.db.execute(
-            select(Chat).where(Chat.id == chat_id)
-        )
-        chat = result.scalar_one_or_none()
-        
+
+        # Update chat status (chat already fetched above)
         if chat:
             chat.insights_generation_status = "queued"
             chat.insights_job_id = job_id

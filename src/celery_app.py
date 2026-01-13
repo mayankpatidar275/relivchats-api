@@ -14,6 +14,7 @@ celery_app = Celery(
     backend=settings.CELERY_RESULT_BACKEND,
     include=[
         "src.rag.tasks",  # Import task modules
+        "src.vector.tasks",  # Vector indexing tasks
     ]
 )
 

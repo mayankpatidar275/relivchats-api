@@ -5,10 +5,10 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
-from fastapi import HTTPException, status
+# from fastapi import HTTPException, status
 from google import genai
 from google.genai import types
-from sqlalchemy.exc import SQLAlchemyError
+# from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..chats.service import _get_chat_by_id_sync
@@ -16,12 +16,12 @@ from ..config import settings
 from ..vector.service import vector_service
 from . import schemas
 from .models import (
-    AIConversation,
-    AIMessage,
+    # AIConversation,
+    # AIMessage,
     Insight,
     InsightStatus,
     InsightType,
-    MessageType,
+    # MessageType,
 )
 
 logger = logging.getLogger(__name__)
@@ -482,347 +482,347 @@ def generate_insight_with_context(
 
 
 
-# Not used for now
+# # Not used for now
 
-# ============================================================================
-# MAIN INSIGHT GENERATION
-# ============================================================================
+# # ============================================================================
+# # MAIN INSIGHT GENERATION
+# # ============================================================================
 
-def generate_insight(
-    db: Session,
-    chat_id: UUID,
-    insight_type_id: UUID
-) -> Insight:
-    """
-    Generate a new insight using RAG + Gemini structured output
+# def generate_insight(
+#     db: Session,
+#     chat_id: UUID,
+#     insight_type_id: UUID
+# ) -> Insight:
+#     """
+#     Generate a new insight using RAG + Gemini structured output
     
-    Flow:
-    1. Load InsightType config from DB
-    2. Get chat metadata and partner info
-    3. Fetch relevant chunks via RAG
-    4. Build prompt with injected context
-    5. Call Gemini with response schema
-    6. Store structured result
-    """
+#     Flow:
+#     1. Load InsightType config from DB
+#     2. Get chat metadata and partner info
+#     3. Fetch relevant chunks via RAG
+#     4. Build prompt with injected context
+#     5. Call Gemini with response schema
+#     6. Store structured result
+#     """
     
-    start_time = time.time()
+#     start_time = time.time()
     
-    # 1. Get insight type configuration
-    insight_type = db.query(InsightType).filter(
-        InsightType.id == insight_type_id
-    ).first()
+#     # 1. Get insight type configuration
+#     insight_type = db.query(InsightType).filter(
+#         InsightType.id == insight_type_id
+#     ).first()
     
-    if not insight_type:
-        raise ValueError(f"Insight type {insight_type_id} not found")
+#     if not insight_type:
+#         raise ValueError(f"Insight type {insight_type_id} not found")
     
-    if not insight_type.is_active:
-        raise ValueError(f"Insight type {insight_type.name} is not active")
+#     if not insight_type.is_active:
+#         raise ValueError(f"Insight type {insight_type.name} is not active")
     
-    # 2. Get chat and metadata
-    chat = _get_chat_by_id_sync(db, chat_id)
-    if not chat:
-        raise ValueError(f"Chat {chat_id} not found")
+#     # 2. Get chat and metadata
+#     chat = _get_chat_by_id_sync(db, chat_id)
+#     if not chat:
+#         raise ValueError(f"Chat {chat_id} not found")
     
-    if not chat.chat_metadata:
-        raise ValueError(f"Chat {chat_id} has no metadata. Process chat first.")
+#     if not chat.chat_metadata:
+#         raise ValueError(f"Chat {chat_id} has no metadata. Process chat first.")
     
-    # 3. Create or update insight record
-    insight = db.query(Insight).filter_by(
-        chat_id=chat_id,
-        insight_type_id=insight_type_id
-    ).first()
+#     # 3. Create or update insight record
+#     insight = db.query(Insight).filter_by(
+#         chat_id=chat_id,
+#         insight_type_id=insight_type_id
+#     ).first()
     
-    if insight:
-        insight.status = InsightStatus.GENERATING
-        insight.error_message = None
-        insight.updated_at = datetime.now(timezone.utc)
-    else:
-        insight = Insight(
-            chat_id=chat_id,
-            insight_type_id=insight_type_id,
-            status=InsightStatus.GENERATING
-        )
-        db.add(insight)
+#     if insight:
+#         insight.status = InsightStatus.GENERATING
+#         insight.error_message = None
+#         insight.updated_at = datetime.now(timezone.utc)
+#     else:
+#         insight = Insight(
+#             chat_id=chat_id,
+#             insight_type_id=insight_type_id,
+#             status=InsightStatus.GENERATING
+#         )
+#         db.add(insight)
     
-    db.commit()
-    db.refresh(insight)
+#     db.commit()
+#     db.refresh(insight)
     
-    try:
-        # 4. Fetch RAG chunks
-        rag_chunks = fetch_rag_chunks(
-            db=db,
-            chat_id=chat_id,
-            rag_query_keywords=insight_type.rag_query_keywords,
-            max_chunks=50
-        )
+#     try:
+#         # 4. Fetch RAG chunks
+#         rag_chunks = fetch_rag_chunks(
+#             db=db,
+#             chat_id=chat_id,
+#             rag_query_keywords=insight_type.rag_query_keywords,
+#             max_chunks=50
+#         )
         
-        if not rag_chunks:
-            raise ValueError("No relevant message chunks found for this insight")
+#         if not rag_chunks:
+#             raise ValueError("No relevant message chunks found for this insight")
         
-        # 5. Extract required metadata
-        filtered_metadata = extract_required_metadata(
-            chat_metadata=chat.chat_metadata,
-            required_fields=insight_type.required_metadata_fields
-        )
+#         # 5. Extract required metadata
+#         filtered_metadata = extract_required_metadata(
+#             chat_metadata=chat.chat_metadata,
+#             required_fields=insight_type.required_metadata_fields
+#         )
         
-        # 6. Build prompt context
-        prompt_context = schemas.InsightPromptContext(
-            user_display_name=chat.user_display_name or "User",
-            partner_name=chat.partner_name,
-            chat_metadata=filtered_metadata,
-            rag_chunks=rag_chunks,
-            chat_title=chat.title
-        )
+#         # 6. Build prompt context
+#         prompt_context = schemas.InsightPromptContext(
+#             user_display_name=chat.user_display_name or "User",
+#             partner_name=chat.partner_name,
+#             chat_metadata=filtered_metadata,
+#             rag_chunks=rag_chunks,
+#             chat_title=chat.title
+#         )
         
-        # 7. Build final prompt
-        final_prompt = build_insight_prompt(
-            prompt_template=insight_type.prompt_template,
-            context=prompt_context
-        )
+#         # 7. Build final prompt
+#         final_prompt = build_insight_prompt(
+#             prompt_template=insight_type.prompt_template,
+#             context=prompt_context
+#         )
         
-        # 8. Call Gemini with structured output
-        structured_content, tokens_used = call_gemini_structured(
-            prompt=final_prompt,
-            response_schema=insight_type.response_schema,
-            temperature=0.7
-        )
+#         # 8. Call Gemini with structured output
+#         structured_content, tokens_used = call_gemini_structured(
+#             prompt=final_prompt,
+#             response_schema=insight_type.response_schema,
+#             temperature=0.7
+#         )
         
-        # 9. Update insight with results
-        generation_time_ms = int((time.time() - start_time) * 1000)
+#         # 9. Update insight with results
+#         generation_time_ms = int((time.time() - start_time) * 1000)
         
-        insight.content = structured_content
-        insight.status = InsightStatus.COMPLETED
-        insight.tokens_used = tokens_used
-        insight.generation_time_ms = generation_time_ms
-        insight.rag_chunks_used = len(rag_chunks)
-        insight.updated_at = datetime.now(timezone.utc)
+#         insight.content = structured_content
+#         insight.status = InsightStatus.COMPLETED
+#         insight.tokens_used = tokens_used
+#         insight.generation_time_ms = generation_time_ms
+#         insight.rag_chunks_used = len(rag_chunks)
+#         insight.updated_at = datetime.now(timezone.utc)
         
-        db.commit()
-        # Note: db.refresh() removed - unnecessary after commit and can cause
-        # timeout issues when soft time limit is exceeded
+#         db.commit()
+#         # Note: db.refresh() removed - unnecessary after commit and can cause
+#         # timeout issues when soft time limit is exceeded
 
-        return insight
+#         return insight
         
-    except Exception as e:
-        # Mark as failed
-        insight.status = InsightStatus.FAILED
-        insight.error_message = str(e)[:500]  # Limit error message length
-        insight.updated_at = datetime.now(timezone.utc)
-        db.commit()
-        raise
+#     except Exception as e:
+#         # Mark as failed
+#         insight.status = InsightStatus.FAILED
+#         insight.error_message = str(e)[:500]  # Limit error message length
+#         insight.updated_at = datetime.now(timezone.utc)
+#         db.commit()
+#         raise
 
-def regenerate_insight(
-    db: Session,
-    insight_id: UUID
-) -> Insight:
-    """Retry generating a failed insight"""
-    insight = db.query(Insight).filter(Insight.id == insight_id).first()
+# def regenerate_insight(
+#     db: Session,
+#     insight_id: UUID
+# ) -> Insight:
+#     """Retry generating a failed insight"""
+#     insight = db.query(Insight).filter(Insight.id == insight_id).first()
     
-    if not insight:
-        raise ValueError(f"Insight {insight_id} not found")
+#     if not insight:
+#         raise ValueError(f"Insight {insight_id} not found")
     
-    # Simply call generate_insight again
-    return generate_insight(
-        db=db,
-        chat_id=insight.chat_id,
-        insight_type_id=insight.insight_type_id
-    )
-
-
-def create_rag_prompt(question: str, context_chunks: List[Dict], chat_title: str = None, conversation_history: List[Dict] = None) -> str:
-    """Create a prompt for the LLM with context and conversation history"""
-    
-    title_info = f" titled '{chat_title}'" if chat_title else ""
-    
-    context_text = "\n\n".join([
-        f"**Context {i+1}** (from {chunk['metadata'].get('speakers', ['Unknown'])}): \n{chunk['content']}"
-        for i, chunk in enumerate(context_chunks)
-    ])
-    
-    # Add conversation history section
-    conversation_text = ""
-    if conversation_history:
-        conversation_text = "\n\n**Previous Conversation:**\n"
-        for msg in conversation_history:
-            role = "You" if msg["type"] == "user" else "Assistant"
-            conversation_text += f"{role}: {msg['content']}\n"
-        conversation_text += "\n"
-    
-    prompt = f"""You are helping a user understand their WhatsApp chat{title_info}. 
-Answer their question based ONLY on the provided chat context and previous conversation. Be conversational and helpful.
-
-**User Question:** {question}
-
-**Relevant Chat Context:**
-{context_text}
-{conversation_text}
-**Instructions:**
-- Answer based only on the provided context and conversation history
-- Be conversational and natural
-- If the context doesn't contain enough information, say so honestly
-- Reference specific people or timeframes when relevant
-- Don't make up information not in the context
-- Consider the conversation flow and previous questions
-
-**Answer:**"""
-
-    return prompt
+#     # Simply call generate_insight again
+#     return generate_insight(
+#         db=db,
+#         chat_id=insight.chat_id,
+#         insight_type_id=insight.insight_type_id
+#     )
 
 
-def get_or_create_conversation(db: Session, chat_id: str, user_id: str) -> AIConversation:
-    """Get existing conversation or create a new one for given chat and user"""
-    try:
-        conversation = (
-            db.query(AIConversation)
-            .filter(
-                AIConversation.chat_id == chat_id,
-                AIConversation.user_id == user_id
-            )
-            .first()
-        )
-
-        if not conversation:
-            conversation = AIConversation(
-                chat_id=chat_id,
-                user_id=user_id
-            )
-            db.add(conversation)
-            db.commit()
-            db.refresh(conversation)
-
-        return conversation
-
-    except SQLAlchemyError as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error while creating conversation: {str(e)}"
-        )
-
-def get_conversation_history(db: Session, conversation_id: str, token_limit: int = 3000) -> List[Dict]:
-    """Get conversation history within token limit"""
-    messages = db.query(AIMessage).filter(
-        AIMessage.conversation_id == conversation_id
-    ).order_by(AIMessage.created_at.desc()).limit(10).all()  # Get last 10 messages
+# def create_rag_prompt(question: str, context_chunks: List[Dict], chat_title: str = None, conversation_history: List[Dict] = None) -> str:
+#     """Create a prompt for the LLM with context and conversation history"""
     
-    # Reverse to get chronological order
-    messages = messages[::-1]
+#     title_info = f" titled '{chat_title}'" if chat_title else ""
     
-    # Simple token estimation (4 chars ≈ 1 token)
-    history = []
-    total_tokens = 0
+#     context_text = "\n\n".join([
+#         f"**Context {i+1}** (from {chunk['metadata'].get('speakers', ['Unknown'])}): \n{chunk['content']}"
+#         for i, chunk in enumerate(context_chunks)
+#     ])
     
-    for msg in messages:
-        estimated_tokens = len(msg.content) // 4
-        if total_tokens + estimated_tokens > token_limit:
-            break
-        history.append({
-            "type": msg.message_type.value,
-            "content": msg.content,
-            "created_at": msg.created_at
-        })
-        total_tokens += estimated_tokens
+#     # Add conversation history section
+#     conversation_text = ""
+#     if conversation_history:
+#         conversation_text = "\n\n**Previous Conversation:**\n"
+#         for msg in conversation_history:
+#             role = "You" if msg["type"] == "user" else "Assistant"
+#             conversation_text += f"{role}: {msg['content']}\n"
+#         conversation_text += "\n"
     
-    return history
+#     prompt = f"""You are helping a user understand their WhatsApp chat{title_info}. 
+# Answer their question based ONLY on the provided chat context and previous conversation. Be conversational and helpful.
+
+# **User Question:** {question}
+
+# **Relevant Chat Context:**
+# {context_text}
+# {conversation_text}
+# **Instructions:**
+# - Answer based only on the provided context and conversation history
+# - Be conversational and natural
+# - If the context doesn't contain enough information, say so honestly
+# - Reference specific people or timeframes when relevant
+# - Don't make up information not in the context
+# - Consider the conversation flow and previous questions
+
+# **Answer:**"""
+
+#     return prompt
 
 
-def store_conversation_messages(db: Session, conversation_id: str, question: str, answer: str):
-    """Store user question and AI answer in conversation"""
-    # Store user message
-    user_message = AIMessage(
-        conversation_id=conversation_id,
-        message_type=MessageType.USER,
-        content=question
-    )
+# def get_or_create_conversation(db: Session, chat_id: str, user_id: str) -> AIConversation:
+#     """Get existing conversation or create a new one for given chat and user"""
+#     try:
+#         conversation = (
+#             db.query(AIConversation)
+#             .filter(
+#                 AIConversation.chat_id == chat_id,
+#                 AIConversation.user_id == user_id
+#             )
+#             .first()
+#         )
+
+#         if not conversation:
+#             conversation = AIConversation(
+#                 chat_id=chat_id,
+#                 user_id=user_id
+#             )
+#             db.add(conversation)
+#             db.commit()
+#             db.refresh(conversation)
+
+#         return conversation
+
+#     except SQLAlchemyError as e:
+#         db.rollback()
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail=f"Database error while creating conversation: {str(e)}"
+#         )
+
+# def get_conversation_history(db: Session, conversation_id: str, token_limit: int = 3000) -> List[Dict]:
+#     """Get conversation history within token limit"""
+#     messages = db.query(AIMessage).filter(
+#         AIMessage.conversation_id == conversation_id
+#     ).order_by(AIMessage.created_at.desc()).limit(10).all()  # Get last 10 messages
     
-    # Store assistant message
-    assistant_message = AIMessage(
-        conversation_id=conversation_id,
-        message_type=MessageType.ASSISTANT,
-        content=answer
-    )
+#     # Reverse to get chronological order
+#     messages = messages[::-1]
     
-    db.add(user_message)
-    db.add(assistant_message)
-    db.commit()
+#     # Simple token estimation (4 chars ≈ 1 token)
+#     history = []
+#     total_tokens = 0
+    
+#     for msg in messages:
+#         estimated_tokens = len(msg.content) // 4
+#         if total_tokens + estimated_tokens > token_limit:
+#             break
+#         history.append({
+#             "type": msg.message_type.value,
+#             "content": msg.content,
+#             "created_at": msg.created_at
+#         })
+#         total_tokens += estimated_tokens
+    
+#     return history
 
 
-def query_chat_with_rag(
-    db: Session,
-    chat_id: str,
-    question: str,
-    user_id: str,
-    max_chunks: int = 5
-) -> schemas.RAGQueryResponse:
-    """Perform RAG query on a chat with conversation context"""
+# def store_conversation_messages(db: Session, conversation_id: str, question: str, answer: str):
+#     """Store user question and AI answer in conversation"""
+#     # Store user message
+#     user_message = AIMessage(
+#         conversation_id=conversation_id,
+#         message_type=MessageType.USER,
+#         content=question
+#     )
     
-    start_time = time.time()
-    # Get or create conversation
-    conversation = get_or_create_conversation(db, chat_id, user_id)
+#     # Store assistant message
+#     assistant_message = AIMessage(
+#         conversation_id=conversation_id,
+#         message_type=MessageType.ASSISTANT,
+#         content=answer
+#     )
     
-    # Get conversation history
-    conversation_history = get_conversation_history(db, str(conversation.id))
+#     db.add(user_message)
+#     db.add(assistant_message)
+#     db.commit()
+
+
+# def query_chat_with_rag(
+#     db: Session,
+#     chat_id: str,
+#     question: str,
+#     user_id: str,
+#     max_chunks: int = 5
+# ) -> schemas.RAGQueryResponse:
+#     """Perform RAG query on a chat with conversation context"""
     
-    # Get chat info
-    chat = _get_chat_by_id_sync(db, chat_id)
-    chat_title = chat.title if chat else None
+#     start_time = time.time()
+#     # Get or create conversation
+#     conversation = get_or_create_conversation(db, chat_id, user_id)
     
-    # Search for relevant chunks
-    search_results = vector_service.search_chat(db, chat_id, question, max_chunks)
+#     # Get conversation history
+#     conversation_history = get_conversation_history(db, str(conversation.id))
     
-    if not search_results:
-        # No relevant context found
-        answer = "I couldn't find any relevant information in this chat to answer your question. Try rephrasing your question or asking about something else from the conversation."
-        confidence = "low"
-        sources = []
-    else:
-        # Create prompt with context and conversation history
-        prompt = create_rag_prompt(question, search_results, chat_title, conversation_history)
+#     # Get chat info
+#     chat = _get_chat_by_id_sync(db, chat_id)
+#     chat_title = chat.title if chat else None
+    
+#     # Search for relevant chunks
+#     search_results = vector_service.search_chat(db, chat_id, question, max_chunks)
+    
+#     if not search_results:
+#         # No relevant context found
+#         answer = "I couldn't find any relevant information in this chat to answer your question. Try rephrasing your question or asking about something else from the conversation."
+#         confidence = "low"
+#         sources = []
+#     else:
+#         # Create prompt with context and conversation history
+#         prompt = create_rag_prompt(question, search_results, chat_title, conversation_history)
         
-        # Get LLM response
-        try:
-            model = genai.GenerativeModel(settings.GEMINI_LLM_MODEL)
-            response = model.generate_content(prompt)
-            answer = response.text.strip()
-        except Exception as e:
-            print(f"Error generating LLM response: {e}")
-            answer = "I'm sorry, I encountered an error while generating a response. Please try again."
+#         # Get LLM response
+#         try:
+#             model = genai.GenerativeModel(settings.GEMINI_LLM_MODEL)
+#             response = model.generate_content(prompt)
+#             answer = response.text.strip()
+#         except Exception as e:
+#             print(f"Error generating LLM response: {e}")
+#             answer = "I'm sorry, I encountered an error while generating a response. Please try again."
         
-        # Determine confidence
-        similarity_scores = [r["similarity_score"] for r in search_results]
-        confidence = determine_confidence(similarity_scores)
+#         # Determine confidence
+#         similarity_scores = [r["similarity_score"] for r in search_results]
+#         confidence = determine_confidence(similarity_scores)
         
-        # Format sources
-        sources = []
-        for result in search_results:
-            metadata = result["metadata"]
-            time_span_minutes = metadata.get("time_span_minutes", 0)
+#         # Format sources
+#         sources = []
+#         for result in search_results:
+#             metadata = result["metadata"]
+#             time_span_minutes = metadata.get("time_span_minutes", 0)
             
-            source = schemas.SearchResultResponse(
-                vector_id=result["vector_id"],
-                content=result["content"],
-                similarity_score=result["similarity_score"],
-                metadata=metadata,
-                chunk_index=metadata.get("chunk_index", 0),
-                speakers=metadata.get("speakers", []),
-                message_count=metadata.get("message_count", 0),
-                time_span=format_time_span(time_span_minutes)
-            )
-            sources.append(source)
+#             source = schemas.SearchResultResponse(
+#                 vector_id=result["vector_id"],
+#                 content=result["content"],
+#                 similarity_score=result["similarity_score"],
+#                 metadata=metadata,
+#                 chunk_index=metadata.get("chunk_index", 0),
+#                 speakers=metadata.get("speakers", []),
+#                 message_count=metadata.get("message_count", 0),
+#                 time_span=format_time_span(time_span_minutes)
+#             )
+#             sources.append(source)
     
-    # Store conversation messages BEFORE returning
-    store_conversation_messages(db, str(conversation.id), question, answer)
+#     # Store conversation messages BEFORE returning
+#     store_conversation_messages(db, str(conversation.id), question, answer)
     
-    # Calculate response time
-    response_time_ms = int((time.time() - start_time) * 1000)
+#     # Calculate response time
+#     response_time_ms = int((time.time() - start_time) * 1000)
     
-    return schemas.RAGQueryResponse(
-        question=question,
-        answer=answer,
-        chat_id=chat_id,
-        chat_title=chat_title,
-        sources_used=sources,
-        confidence=confidence,
-        response_time_ms=response_time_ms,
-        created_at=datetime.now(timezone.utc)
-    )
+#     return schemas.RAGQueryResponse(
+#         question=question,
+#         answer=answer,
+#         chat_id=chat_id,
+#         chat_title=chat_title,
+#         sources_used=sources,
+#         confidence=confidence,
+#         response_time_ms=response_time_ms,
+#         created_at=datetime.now(timezone.utc)
+#     )

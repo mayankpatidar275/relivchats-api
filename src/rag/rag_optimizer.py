@@ -4,12 +4,9 @@ from typing import Dict, List, Optional
 from uuid import UUID
 from sqlalchemy.orm import Session
 import json
-import hashlib
-from datetime import datetime, timedelta
 from redis import Redis
 
 from ..config import settings
-from ..vector.service import vector_service
 from .schemas import RAGChunk
 
 class RAGContextCache:

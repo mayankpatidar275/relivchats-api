@@ -12,27 +12,18 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-
-from typing import List, Dict, Optional
-from uuid import UUID
-from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
-import logging
 
 from .models import (
     InsightGenerationJob,
     Insight,
-    InsightType,
     InsightStatus,
     CategoryInsightType,
     AnalysisCategory
 )
-from ..error_handlers import (
-    InsufficientCreditsException
-)
+
 from ..chats.models import Chat
 from .rag_optimizer import RAGContextExtractor
-from ..config import settings
 from ..logging_config import get_logger, log_business_event
 
 logger = get_logger(__name__)

@@ -9,7 +9,7 @@ Production-grade payment service with:
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select
 from typing import Optional
 from datetime import datetime, timezone
 import uuid

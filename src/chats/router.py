@@ -11,7 +11,6 @@ Endpoints:
 """
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Annotated, List, Optional
 from uuid import UUID
@@ -687,112 +686,112 @@ async def soft_delete_chat(
 # PUBLIC STATS (NO AUTH)
 # ============================================================================
 
-@router.get("/public/{chat_id}/stats")
-async def get_public_chat_stats(
-    chat_id: UUID,
-    db: AsyncSession = Depends(get_async_db)
-):
-    """Get public chat statistics (no auth required)"""
+# @router.get("/public/{chat_id}/stats")
+# async def get_public_chat_stats(
+#     chat_id: UUID,
+#     db: AsyncSession = Depends(get_async_db)
+# ):
+#     """Get public chat statistics (no auth required)"""
 
-    logger.debug(
-        "Fetching public chat stats",
-        extra={"extra_data": {"chat_id": str(chat_id)}}
-    )
+#     logger.debug(
+#         "Fetching public chat stats",
+#         extra={"extra_data": {"chat_id": str(chat_id)}}
+#     )
 
-    try:
-        # Use async query to fetch chat
-        result = await db.execute(
-            select(models.Chat).where(models.Chat.id == chat_id)
-        )
-        chat = result.scalar_one_or_none()
+#     try:
+#         # Use async query to fetch chat
+#         result = await db.execute(
+#             select(models.Chat).where(models.Chat.id == chat_id)
+#         )
+#         chat = result.scalar_one_or_none()
         
-        if not chat:
-            logger.warning(f"Public stats requested for non-existent chat: {chat_id}")
-            raise NotFoundException("Chat", str(chat_id))
+#         if not chat:
+#             logger.warning(f"Public stats requested for non-existent chat: {chat_id}")
+#             raise NotFoundException("Chat", str(chat_id))
         
-        logger.debug(
-            f"Public stats retrieved for chat: {chat_id}",
-            extra={"extra_data": {"chat_id": str(chat_id)}}
-        )
+#         logger.debug(
+#             f"Public stats retrieved for chat: {chat_id}",
+#             extra={"extra_data": {"chat_id": str(chat_id)}}
+#         )
         
-        return {
-            "id": str(chat.id),
-            "filename": chat.title,
-            "participants": json.loads(chat.participants) if chat.participants else [],
-            "chat_metadata": chat.chat_metadata,
-            "created_at": chat.created_at,
-        }
+#         return {
+#             "id": str(chat.id),
+#             "filename": chat.title,
+#             "participants": json.loads(chat.participants) if chat.participants else [],
+#             "chat_metadata": chat.chat_metadata,
+#             "created_at": chat.created_at,
+#         }
     
-    except NotFoundException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"Failed to retrieve public stats: {e}",
-            extra={"extra_data": {"chat_id": str(chat_id)}},
-            exc_info=True
-        )
-        raise DatabaseException("Failed to retrieve public stats", original_error=e)
+#     except NotFoundException:
+#         raise
+#     except Exception as e:
+#         logger.error(
+#             f"Failed to retrieve public stats: {e}",
+#             extra={"extra_data": {"chat_id": str(chat_id)}},
+#             exc_info=True
+#         )
+#         raise DatabaseException("Failed to retrieve public stats", original_error=e)
 
 
 # ============================================================================
 # UPDATE DISPLAY NAME
 # ============================================================================
 
-@router.put("/{chat_id}/display-name", response_model=schemas.ChatUploadResponse)
-async def update_user_display_name(
-    chat_id: str,
-    request: schemas.UpdateUserDisplayName,
-    user_id: Annotated[str, Depends(get_current_user_id)],
-    db: AsyncSession = Depends(get_async_db)
-):
-    """Update user's display name for a chat"""
+# @router.put("/{chat_id}/display-name", response_model=schemas.ChatUploadResponse)
+# async def update_user_display_name(
+#     chat_id: str,
+#     request: schemas.UpdateUserDisplayName,
+#     user_id: Annotated[str, Depends(get_current_user_id)],
+#     db: AsyncSession = Depends(get_async_db)
+# ):
+#     """Update user's display name for a chat"""
 
-    logger.info(
-        "Updating user display name",
-        extra={
-            "user_id": user_id,
-            "extra_data": {
-                "chat_id": chat_id,
-                "new_display_name": request.user_display_name
-            }
-        }
-    )
+#     logger.info(
+#         "Updating user display name",
+#         extra={
+#             "user_id": user_id,
+#             "extra_data": {
+#                 "chat_id": chat_id,
+#                 "new_display_name": request.user_display_name
+#             }
+#         }
+#     )
 
-    try:
-        # Update user display name (async service call)
-        chat = await service.update_user_display_name(
-            db,
-            chat_id,
-            user_id,
-            request.user_display_name
-        )
+#     try:
+#         # Update user display name (async service call)
+#         chat = await service.update_user_display_name(
+#             db,
+#             chat_id,
+#             user_id,
+#             request.user_display_name
+#         )
         
-        if not chat:
-            logger.warning(
-                f"Chat not found or unauthorized: {chat_id}",
-                extra={"user_id": user_id}
-            )
-            raise NotFoundException("Chat", chat_id)
+#         if not chat:
+#             logger.warning(
+#                 f"Chat not found or unauthorized: {chat_id}",
+#                 extra={"user_id": user_id}
+#             )
+#             raise NotFoundException("Chat", chat_id)
         
-        logger.info(
-            f"Display name updated for chat: {chat_id}",
-            extra={"user_id": user_id}
-        )
+#         logger.info(
+#             f"Display name updated for chat: {chat_id}",
+#             extra={"user_id": user_id}
+#         )
         
-        return schemas.ChatUploadResponse.from_orm(chat)
+#         return schemas.ChatUploadResponse.from_orm(chat)
     
-    except NotFoundException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"Failed to update display name: {e}",
-            extra={
-                "user_id": user_id,
-                "extra_data": {"chat_id": chat_id}
-            },
-            exc_info=True
-        )
-        raise DatabaseException("Failed to update display name", original_error=e)
+#     except NotFoundException:
+#         raise
+#     except Exception as e:
+#         logger.error(
+#             f"Failed to update display name: {e}",
+#             extra={
+#                 "user_id": user_id,
+#                 "extra_data": {"chat_id": chat_id}
+#             },
+#             exc_info=True
+#         )
+#         raise DatabaseException("Failed to update display name", original_error=e)
 
 
 

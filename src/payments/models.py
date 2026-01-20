@@ -1,7 +1,7 @@
 # src/payments/models.py
-from sqlalchemy import Column, String, Integer, DECIMAL, DateTime, JSON, Enum as SQLEnum, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, JSON, Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import UUID
-from datetime import datetime, timezone, timezone
+from datetime import datetime, timezone
 import uuid
 from ..database import Base
 from .base import PaymentProvider, PaymentStatus

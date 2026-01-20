@@ -216,3 +216,4 @@ logs/*.log
   *.py.backup
 
 logs
+output

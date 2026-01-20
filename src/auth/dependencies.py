@@ -4,7 +4,6 @@ import httpx
 from typing import Annotated
 
 from clerk_backend_api import Clerk
-from clerk_backend_api.security import authenticate_request
 from clerk_backend_api.security.types import AuthenticateRequestOptions
 from clerk_backend_api.models import ClerkBaseError
 
@@ -82,7 +81,7 @@ async def get_current_user_id(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
-        logger.debug(f"User authenticated successfully", extra={"user_id": user_id})
+        logger.debug("User authenticated successfully", extra={"user_id": user_id})
         
         return user_id
         

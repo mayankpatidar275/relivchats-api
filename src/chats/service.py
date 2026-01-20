@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional, Dict, List, Tuple, Any
 from sqlalchemy.sql import func
 
-from sqlalchemy.orm import Session, joinedload, selectinload
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -45,7 +45,7 @@ except LookupError:
 # Configuration Constants
 CONFIG = {
     'CONVERSATION_GAP_HOURS': 6,
-    'TOP_EMOJIS_LIMIT': 30,
+    'TOP_EMOJIS_LIMIT': 40,
     'TOP_WORDS_LIMIT': 50,
     'DOUBLE_TEXT_THRESHOLD': 2,
     'MAX_RESPONSE_TIME_HOURS': 4,
@@ -300,64 +300,6 @@ async def get_chat_messages(db: AsyncSession, chat_id: UUID, user_id: str):
             exc_info=True
         )
         raise DatabaseException("Failed to fetch messages", original_error=e)
-
-
-async def update_user_display_name(db: AsyncSession, chat_id: str, user_id: str, display_name: str):
-    """Update user's display name for a chat"""
-
-    logger.debug(
-        "Updating display name",
-        extra={
-            "user_id": user_id,
-            "extra_data": {
-                "chat_id": chat_id,
-                "display_name": display_name
-            }
-        }
-    )
-
-    try:
-        stmt = select(models.Chat).filter(
-            models.Chat.id == chat_id,
-            models.Chat.user_id == user_id
-        )
-        result = await db.execute(stmt)
-        chat = result.scalar_one_or_none()
-
-        if chat:
-            chat.user_display_name = display_name
-            await db.commit()
-            await db.refresh(chat)
-
-            logger.info(
-                f"Display name updated: {chat_id}",
-                extra={
-                    "user_id": user_id,
-                    "extra_data": {
-                        "chat_id": chat_id,
-                        "display_name": display_name
-                    }
-                }
-            )
-        else:
-            logger.warning(
-                f"Chat not found for display name update: {chat_id}",
-                extra={"user_id": user_id}
-            )
-
-        return chat
-
-    except SQLAlchemyError as e:
-        await db.rollback()
-        logger.error(
-            f"Failed to update display name: {e}",
-            extra={
-                "user_id": user_id,
-                "extra_data": {"chat_id": chat_id}
-            },
-            exc_info=True
-        )
-        raise DatabaseException("Failed to update display name", original_error=e)
 
 
 def _delete_chat_sync(db: Session, chat_id: str):
@@ -651,7 +593,6 @@ def save_messages_to_db(db: Session, chat_id: UUID, whatstk_chat) -> int:
             exc_info=True
         )
         raise DatabaseException("Failed to save messages", original_error=e)
-
 
 
 # ============================================================================
@@ -1303,6 +1244,67 @@ def compute_chat_metadata(chat: whatstk.WhatsAppChat, participants: List[str]) -
             f"Failed to compute chat metadata: {str(e)}",
             error_code=ErrorCode.CHAT_PROCESSING_FAILED
         )
+
+
+
+
+# async def update_user_display_name(db: AsyncSession, chat_id: str, user_id: str, display_name: str):
+#     """Update user's display name for a chat"""
+
+#     logger.debug(
+#         "Updating display name",
+#         extra={
+#             "user_id": user_id,
+#             "extra_data": {
+#                 "chat_id": chat_id,
+#                 "display_name": display_name
+#             }
+#         }
+#     )
+
+#     try:
+#         stmt = select(models.Chat).filter(
+#             models.Chat.id == chat_id,
+#             models.Chat.user_id == user_id
+#         )
+#         result = await db.execute(stmt)
+#         chat = result.scalar_one_or_none()
+
+#         if chat:
+#             chat.user_display_name = display_name
+#             await db.commit()
+#             await db.refresh(chat)
+
+#             logger.info(
+#                 f"Display name updated: {chat_id}",
+#                 extra={
+#                     "user_id": user_id,
+#                     "extra_data": {
+#                         "chat_id": chat_id,
+#                         "display_name": display_name
+#                     }
+#                 }
+#             )
+#         else:
+#             logger.warning(
+#                 f"Chat not found for display name update: {chat_id}",
+#                 extra={"user_id": user_id}
+#             )
+
+#         return chat
+
+#     except SQLAlchemyError as e:
+#         await db.rollback()
+#         logger.error(
+#             f"Failed to update display name: {e}",
+#             extra={
+#                 "user_id": user_id,
+#                 "extra_data": {"chat_id": chat_id}
+#             },
+#             exc_info=True
+#         )
+#         raise DatabaseException("Failed to update display name", original_error=e)
+
 
 
 # ============================================================================

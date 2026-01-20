@@ -1,7 +1,6 @@
 # src/payments/router.py
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
 
 from ..database import get_async_db
 from ..auth.dependencies import get_current_user_id

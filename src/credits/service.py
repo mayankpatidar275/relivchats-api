@@ -13,10 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import desc, select, and_
 from sqlalchemy.orm import selectinload
 import time
-from typing import List, Optional
+from typing import Optional
 from uuid import UUID
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 import uuid
 
 from .models import CreditTransaction, CreditPackage, TransactionType, TransactionStatus
@@ -42,93 +42,6 @@ class CreditService:
     def __init__(self, db: Session):
         self.db = db
 
-    # ========================================================================
-    # SYNC METHODS (Legacy - Keep for backward compatibility)
-    # ========================================================================
-    
-    def get_balance(self, user_id: str) -> int:
-        """Get user's current credit balance (SYNC)"""
-        user = self.db.query(User).filter(User.user_id == user_id).first()
-        if not user:
-            raise NotFoundException("User", user_id)
-        return user.credit_balance
-
-    def add_signup_bonus(self, user_id: str, bonus_amount: int = 50) -> CreditTransaction:
-        """Give signup bonus to new user (SYNC)"""
-        user = self.db.query(User).filter(User.user_id == user_id).first()
-        if not user:
-            raise NotFoundException("User", user_id)
-        
-        # Check if user already received signup bonus
-        existing_bonus = self.db.query(CreditTransaction).filter(
-            CreditTransaction.user_id == user_id,
-            CreditTransaction.type == TransactionType.SIGNUP_BONUS
-        ).first()
-        
-        if existing_bonus:
-            logger.info(
-                "Signup bonus already claimed",
-                extra={"user_id": user_id}
-            )
-            return existing_bonus
-        
-        # Add bonus
-        user.credit_balance += bonus_amount
-        
-        transaction = CreditTransaction(
-            user_id=user_id,
-            type=TransactionType.SIGNUP_BONUS,
-            amount=bonus_amount,
-            balance_after=user.credit_balance,
-            description=f"Welcome bonus: {bonus_amount} coins",
-            status=TransactionStatus.COMPLETED
-        )
-        
-        self.db.add(transaction)
-        self.db.commit()
-        self.db.refresh(transaction)
-        
-        log_business_event(
-            "signup_bonus_granted",
-            user_id=user_id,
-            amount=bonus_amount
-        )
-        
-        return transaction
-
-    def get_transaction_history(
-        self, 
-        user_id: str, 
-        limit: int = 50, 
-        offset: int = 0
-    ) -> tuple[List[CreditTransaction], int]:
-        """Get user's transaction history with pagination (SYNC)"""
-        query = self.db.query(CreditTransaction).filter(
-            CreditTransaction.user_id == user_id
-        )
-        
-        total_count = query.count()
-        
-        transactions = query.order_by(
-            desc(CreditTransaction.created_at)
-        ).limit(limit).offset(offset).all()
-        
-        return transactions, total_count
-
-    def get_packages(self, active_only: bool = True) -> List[CreditPackage]:
-        """Get available credit packages (SYNC)"""
-        query = self.db.query(CreditPackage)
-        
-        if active_only:
-            query = query.filter(CreditPackage.is_active)
-        
-        return query.order_by(CreditPackage.sort_order).all()
-
-    def get_package(self, package_id: UUID) -> Optional[CreditPackage]:
-        """Sync: get a single credit package by id (used by sync callers)."""
-        return self.db.query(CreditPackage).filter(
-            CreditPackage.id == package_id
-        ).first()
 
     def refund_transaction(
         self,
@@ -275,7 +188,7 @@ class CreditService:
     async def get_balance_async(cls, db: AsyncSession, user_id: str) -> int:
         """Get user's current credit balance (ASYNC)"""
         start = time.time()
-        logger.info(f"DB query START")
+        logger.info("DB query START")
         result = await db.execute(
             select(User).where(User.user_id == user_id)
         )

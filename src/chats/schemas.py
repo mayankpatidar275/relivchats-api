@@ -1,25 +1,8 @@
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List
 import json
 from uuid import UUID
-
-# export interface Chat {
-#   id: string;
-#   filename: string;
-#   platform: "whatsapp" | "telegram" | "instagram" | "other";
-#   category_id?: string;
-#   category_slug?: string;
-#   category_name?: string;
-#   uploaded_at: string;
-#   participant_count: number;
-#   message_count: number;
-#   date_range_start?: string;
-#   date_range_end?: string;
-#   file_size_bytes: number;
-#   processing_status: "pending" | "processed" | "failed";
-#   insights_unlocked: boolean; // NEW: Track if insights are unlocked
-# }
 
 class ChatUploadResponse(BaseModel):
     chat_id: UUID
@@ -156,25 +139,6 @@ class GetChatResponse(BaseModel):
             indexed_at=getattr(db_chat, 'indexed_at', None),
             error_log=db_chat.error_log
         )
-
-class UpdateUserDisplayName(BaseModel):
-    user_display_name: str
-
-class ChatDetailsResponse(BaseModel):
-    id: str
-    user_id: str
-    title: Optional[str] = None
-    participants: Optional[List[str]] = None
-    user_display_name: Optional[str] = None
-    created_at: datetime
-    status: str
-    vector_status: str = "pending"
-    chunk_count: int = 0
-    indexed_at: Optional[datetime] = None
-    message_count: int = 0
-
-    class Config:
-        from_attributes = True
         
 class ChatMessagesResponse(BaseModel):
     id: UUID
@@ -216,31 +180,51 @@ class VectorStatusResponse(BaseModel):
     class Config:
         from_attributes = True
 
-class AIMessageResponse(BaseModel):
-    id: str
-    message_type: str
-    content: str
-    created_at: datetime
-    
-    class Config:
-        from_attributes = True
-
-class AIConversationResponse(BaseModel):
-    id: str
-    chat_id: str
-    created_at: datetime
-    updated_at: datetime
-    messages: List[AIMessageResponse]
-    
-    class Config:
-        from_attributes = True
-
 class ChatDeleteResponse(BaseModel):
     success: bool
     message: str
     chat_id: UUID
+
+# class AIMessageResponse(BaseModel):
+#     id: str
+#     message_type: str
+#     content: str
+#     created_at: datetime
+    
+#     class Config:
+#         from_attributes = True
+
+# class AIConversationResponse(BaseModel):
+#     id: str
+#     chat_id: str
+#     created_at: datetime
+#     updated_at: datetime
+#     messages: List[AIMessageResponse]
+    
+#     class Config:
+#         from_attributes = True
     
 # class ChatParticipantsResponse(BaseModel):
 #     id: str
 #     participants: List[str]
 #     current_user_display_name: Optional[str] = None
+
+
+# class UpdateUserDisplayName(BaseModel):
+#     user_display_name: str
+
+# class ChatDetailsResponse(BaseModel):
+#     id: str
+#     user_id: str
+#     title: Optional[str] = None
+#     participants: Optional[List[str]] = None
+#     user_display_name: Optional[str] = None
+#     created_at: datetime
+#     status: str
+#     vector_status: str = "pending"
+#     chunk_count: int = 0
+#     indexed_at: Optional[datetime] = None
+#     message_count: int = 0
+
+#     class Config:
+#         from_attributes = True

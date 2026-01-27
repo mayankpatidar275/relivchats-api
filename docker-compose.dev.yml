@@ -1,4 +1,24 @@
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: relivchats_postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=relivchats
+      - POSTGRES_PASSWORD=relivchats_dev_password
+      - POSTGRES_DB=relivchats
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relivchats"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   app:
     build: .
     image: relivchats-api:latest
@@ -38,6 +58,8 @@ services:
       - ./uploads:/app/uploads
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     networks:
       - app-network
@@ -103,6 +125,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     networks:
       - app-network
 
@@ -142,6 +166,8 @@ services:
       - QDRANT_MAX_RETRIES=${QDRANT_MAX_RETRIES}
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     networks:
       - app-network
@@ -185,6 +211,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     networks:
       - app-network
 
@@ -205,6 +233,7 @@ services:
       - app-network
 
 volumes:
+  postgres_data:
   redis_data:
   npm_data:
   npm_letsencrypt:

@@ -15,9 +15,9 @@ from .rate_limit import limiter, SlowAPIMiddleware, log_rate_limit_hit
 from slowapi.errors import RateLimitExceeded
 
 # Import routers
-from .users.router import router as users_router  
+from .users.router import router as users_router
 from .chats.router import router as chats_router
-from .rag.router import router as rag_router
+# from .rag.router import router as rag_router  # Commented out - router is disabled
 from .categories.router import router as category_router
 from .credits.router import router as credit_router
 from .insights.router import router as insights_router
@@ -290,7 +290,7 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
 app.include_router(users_router, prefix='/api')
 app.include_router(chats_router, prefix='/api')
 app.include_router(insights_router, prefix='/api')
-app.include_router(rag_router, prefix='/api')
+# app.include_router(rag_router, prefix='/api')  # Commented out - router is disabled
 app.include_router(category_router, prefix='/api')
 app.include_router(credit_router, prefix='/api')
 app.include_router(payment_router, prefix='/api')

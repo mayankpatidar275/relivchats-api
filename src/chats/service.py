@@ -1042,7 +1042,16 @@ def compute_chat_metadata(chat: whatstk.WhatsAppChat, participants: List[str]) -
         logger.debug(
             f"Basic stats: {total_messages} messages over {total_days} days"
         )
-        
+
+        # Messages by date (for timeline visualization)
+        df['date_only'] = df['date'].dt.date
+        messages_by_date = df.groupby('date_only').size().to_dict()
+        # Convert date objects to ISO strings for JSON serialization
+        messages_by_date_serializable = {
+            date.isoformat(): int(count)
+            for date, count in messages_by_date.items()
+        }
+
         # Deleted messages
         deleted_messages_count = df['message'].apply(is_deleted_message).sum()
         
@@ -1168,13 +1177,17 @@ def compute_chat_metadata(chat: whatstk.WhatsAppChat, participants: List[str]) -
             if longest_msg_idx is not None:
                 longest_msg = valid_messages.loc[longest_msg_idx]
                 longest_words = len(extract_words(longest_msg['message'], set()))  # Count all words
+                message_text = str(longest_msg['message'])
+                # Trim message to 500 characters to avoid bloating metadata
+                trimmed_message = message_text[:500] + '...' if len(message_text) > 500 else message_text
                 longest_message = {
                     'word_count': longest_words,
                     'char_count': len(longest_msg['message']),
-                    'timestamp': longest_msg['date'].isoformat()
+                    'timestamp': longest_msg['date'].isoformat(),
+                    'message': trimmed_message
                 }
             else:
-                longest_message = {'word_count': 0, 'char_count': 0, 'timestamp': None}
+                longest_message = {'word_count': 0, 'char_count': 0, 'timestamp': None, 'message': None}
             
             user_stats[user] = {
                 'message_count': int(message_count),
@@ -1202,6 +1215,7 @@ def compute_chat_metadata(chat: whatstk.WhatsAppChat, participants: List[str]) -
             'date_range': date_range,
             'total_days': int(total_days),
             'messages_per_day_avg': round(messages_per_day_avg, 2),
+            'messages_by_date': messages_by_date_serializable,
             'deleted_messages_count': int(deleted_messages_count),
             'media_shared_count': int(media_shared_count),
             'links_shared_count': int(links_shared_count),

@@ -39,6 +39,22 @@ Complete Sentry error tracking configuration for frontend and backend with cost 
 
 ---
 
+## Privacy & Security
+
+### [Privacy Documentation](./privacy/)
+Comprehensive privacy and security implementation guides:
+
+- **[Executive Summary](./privacy/EXECUTIVE_SUMMARY.md)** - High-level overview, costs, timeline (15 min read)
+- **[Privacy Analysis](./privacy/PRIVACY_SECURITY_ANALYSIS.md)** - Detailed vulnerability assessment (45 min read)
+- **[Implementation Guide](./privacy/IMPLEMENTATION_GUIDE.md)** - Step-by-step code examples (60 min reference)
+- **[Frontend Integration](./privacy/FRONTEND_INTEGRATION.md)** - UI components and user flows (45 min reference)
+- **[Data Retention Script](./privacy/DATA_RETENTION_CLEANUP.py)** - Automated cleanup tasks
+- **[Legal Pages Decision](./privacy/LEGAL_PAGES_DECISION.md)** - Why you need custom policies
+
+**Start here:** [privacy/README.md](./privacy/README.md) for navigation guide
+
+---
+
 ## Archive
 
 Historical documentation for reference:

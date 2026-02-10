@@ -1,5 +1,4 @@
 import json
-import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -13,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from ..chats.service import _get_chat_by_id_sync
 from ..config import settings
+from ..logging_config import get_logger
 from ..vector.service import vector_service
 from . import schemas
 from .models import (
@@ -24,7 +24,7 @@ from .models import (
     # MessageType,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # ============================================================================
 # UTILITY FUNCTIONS
@@ -64,20 +64,20 @@ def extract_required_metadata(
     
     return extracted
 
-def determine_confidence(similarity_scores: List[float]) -> str:
-    """Determine confidence level based on similarity scores"""
-    if not similarity_scores:
-        return "low"
+# def determine_confidence(similarity_scores: List[float]) -> str:
+#     """Determine confidence level based on similarity scores"""
+#     if not similarity_scores:
+#         return "low"
     
-    avg_score = sum(similarity_scores) / len(similarity_scores)
-    max_score = max(similarity_scores)
+#     avg_score = sum(similarity_scores) / len(similarity_scores)
+#     max_score = max(similarity_scores)
     
-    if max_score > 0.8 and avg_score > 0.7:
-        return "high"
-    elif max_score > 0.6 and avg_score > 0.5:
-        return "medium"
-    else:
-        return "low"
+#     if max_score > 0.8 and avg_score > 0.7:
+#         return "high"
+#     elif max_score > 0.6 and avg_score > 0.5:
+#         return "medium"
+#     else:
+#         return "low"
 
 # ============================================================================
 # RAG & PROMPT BUILDING
@@ -242,91 +242,91 @@ def call_gemini_structured(
 # INSIGHT RETRIEVAL & REGENERATION
 # ============================================================================
 
-def get_insight(
-    db: Session,
-    chat_id: UUID,
-    insight_type_id: UUID
-) -> Optional[Insight]:
-    """Get existing insight if it exists"""
-    return db.query(Insight).filter(
-        Insight.chat_id == chat_id,
-        Insight.insight_type_id == insight_type_id
-    ).first()
+# def get_insight(
+#     db: Session,
+#     chat_id: UUID,
+#     insight_type_id: UUID
+# ) -> Optional[Insight]:
+#     """Get existing insight if it exists"""
+#     return db.query(Insight).filter(
+#         Insight.chat_id == chat_id,
+#         Insight.insight_type_id == insight_type_id
+#     ).first()
 
-def get_chat_insights_summary(
-    db: Session,
-    chat_id: UUID,
-    category_id: UUID
-) -> schemas.ChatInsightsSummary:
-    """Get summary of all insights for a chat"""
+# def get_chat_insights_summary(
+#     db: Session,
+#     chat_id: UUID,
+#     category_id: UUID
+# ) -> schemas.ChatInsightsSummary:
+#     """Get summary of all insights for a chat"""
     
-    # Get all available insight types for this category
-    # (You'll need to implement category-insight relationship query)
-    # For now, just get all active insights
-    available_types = db.query(InsightType).filter(
-        InsightType.is_active == True
-    ).all()
+#     # Get all available insight types for this category
+#     # (You'll need to implement category-insight relationship query)
+#     # For now, just get all active insights
+#     available_types = db.query(InsightType).filter(
+#         InsightType.is_active == True
+#     ).all()
     
-    # Get generated insights
-    generated = db.query(Insight).filter(
-        Insight.chat_id == chat_id
-    ).all()
+#     # Get generated insights
+#     generated = db.query(Insight).filter(
+#         Insight.chat_id == chat_id
+#     ).all()
     
-    # Calculate stats
-    completed = sum(1 for i in generated if i.status == InsightStatus.COMPLETED)
-    failed = sum(1 for i in generated if i.status == InsightStatus.FAILED)
-    generating = sum(1 for i in generated if i.status == InsightStatus.GENERATING)
+#     # Calculate stats
+#     completed = sum(1 for i in generated if i.status == InsightStatus.COMPLETED)
+#     failed = sum(1 for i in generated if i.status == InsightStatus.FAILED)
+#     generating = sum(1 for i in generated if i.status == InsightStatus.GENERATING)
     
-    return schemas.ChatInsightsSummary(
-        chat_id=chat_id,
-        total_insights=len(generated),
-        completed_insights=completed,
-        failed_insights=failed,
-        generating_insights=generating,
-        available_insight_types=[
-            schemas.InsightTypeResponse.from_orm(it) for it in available_types
-        ],
-        generated_insights=[
-            create_insight_response(db, insight) for insight in generated
-        ]
-    )
+#     return schemas.ChatInsightsSummary(
+#         chat_id=chat_id,
+#         total_insights=len(generated),
+#         completed_insights=completed,
+#         failed_insights=failed,
+#         generating_insights=generating,
+#         available_insight_types=[
+#             schemas.InsightTypeResponse.from_orm(it) for it in available_types
+#         ],
+#         generated_insights=[
+#             create_insight_response(db, insight) for insight in generated
+#         ]
+#     )
 
-def create_insight_response(db: Session, insight: Insight) -> schemas.InsightResponse:
-    """Convert Insight model to response schema"""
+# def create_insight_response(db: Session, insight: Insight) -> schemas.InsightResponse:
+#     """Convert Insight model to response schema"""
     
-    # Add this line to ensure relationship is loaded:
-    db.refresh(insight)  # <-- ADD THIS LINE
+#     # Add this line to ensure relationship is loaded:
+#     db.refresh(insight)  # <-- ADD THIS LINE
 
-    insight_type = insight.insight_type
+#     insight_type = insight.insight_type
     
-    generation_metadata = None
-    if insight.status == InsightStatus.COMPLETED:
-        generation_metadata = schemas.InsightGenerationMetadata(
-            rag_chunks_used=insight.rag_chunks_used or 0,
-            tokens_used=insight.tokens_used,
-            generation_time_ms=insight.generation_time_ms or 0,
-            model_used=settings.GEMINI_LLM_MODEL
-        )
+#     generation_metadata = None
+#     if insight.status == InsightStatus.COMPLETED:
+#         generation_metadata = schemas.InsightGenerationMetadata(
+#             rag_chunks_used=insight.rag_chunks_used or 0,
+#             tokens_used=insight.tokens_used,
+#             generation_time_ms=insight.generation_time_ms or 0,
+#             model_used=settings.GEMINI_LLM_MODEL
+#         )
     
-    return schemas.InsightResponse(
-        id=insight.id,
-        chat_id=insight.chat_id,
-        insight_type_id=insight.insight_type_id,
-        insight_type_name=insight_type.name,
-        display_title=insight_type.display_title,
-        description=insight_type.description,
-        icon=insight_type.icon,
-        is_premium=insight_type.is_premium if insight_type else False,
-        content=insight.content,
-        status=insight.status,
-        error_message=insight.error_message,
-        generation_metadata=generation_metadata,
-        # confidence_score= None,
-        tokens_used=insight.tokens_used,
-        generation_time_ms=insight.generation_time_ms,
-        created_at=insight.created_at,
-        updated_at=insight.updated_at
-    )
+#     return schemas.InsightResponse(
+#         id=insight.id,
+#         chat_id=insight.chat_id,
+#         insight_type_id=insight.insight_type_id,
+#         insight_type_name=insight_type.name,
+#         display_title=insight_type.display_title,
+#         description=insight_type.description,
+#         icon=insight_type.icon,
+#         is_premium=insight_type.is_premium if insight_type else False,
+#         content=insight.content,
+#         status=insight.status,
+#         error_message=insight.error_message,
+#         generation_metadata=generation_metadata,
+#         # confidence_score= None,
+#         tokens_used=insight.tokens_used,
+#         generation_time_ms=insight.generation_time_ms,
+#         created_at=insight.created_at,
+#         updated_at=insight.updated_at
+#     )
 
 def generate_insight_with_context(
     db: Session,

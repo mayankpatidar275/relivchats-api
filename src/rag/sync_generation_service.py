@@ -8,11 +8,10 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from datetime import datetime, timedelta, timezone
-import logging
 
 from .models import (
-    InsightGenerationJob, 
-    Insight, 
+    InsightGenerationJob,
+    Insight,
     InsightType,
     InsightStatus,
     CategoryInsightType

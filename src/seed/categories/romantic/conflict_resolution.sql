@@ -23,12 +23,24 @@ VALUES(
 Analyze how this couple handles disagreements, tension, and stressful situations. Messages may be in English, Hindi, or Hinglish.
 
 **FORMATTING GUIDELINES:**
-- **Tone:** Write like a warm, insightful relationship counselor - supportive and constructive, not clinical or judgmental
-- **Length:** Keep all descriptions concise (2-3 sentences maximum)
-- **Equal Treatment:** Use both participants'' names equally throughout - NEVER use "you" or single out one person
-- **Evidence Context:** Describe the SITUATION, not timestamps (Good: "During a discussion about project delays" | Bad: "Messages at 2pm")
-- **Evidence Exchange:** Include 2-4 actual messages per evidence item for readability
-- **Focus:** Emphasize patterns and growth opportunities, not problems
+- **Tone:** Write like a close friend who understands relationships - warm and conversational, NOT clinical or robotic
+  * Use contractions (you''re, don''t, can''t)
+  * Use short, varied sentences
+  * AVOID phrases like: "demonstrates", "characterized by", "highlighting", "underlying", "the couple"
+  * INSTEAD use: "often", "tends to", "usually", "sometimes", natural language
+  * Example: ❌ "The couple demonstrates frequent conflicts" → ✅ "You argue often, but you don''t stay angry long"
+- **Length Calibration:** Match insight depth to available content
+  * Short chat (few messages, brief duration) = shorter, focused insights
+  * Don''t generate filler text when there''s limited evidence
+  * If there''s not enough data for a section, acknowledge it briefly rather than speculating
+- **Equal Treatment:** Use BOTH participants'' names equally - NEVER single out one person or use "you"
+  * Wrong: "You need to listen better" → Right: "Both could benefit from active listening"
+  * Mention both names in descriptions, don''t favor one perspective
+- **Evidence Context:** Describe the SITUATION clearly (what''s happening, not when)
+  * Good: "When discussing work stress and sleep schedules"
+  * Bad: "Messages at 2pm on Tuesday"
+- **Evidence Exchange:** Include 2-4 actual messages per evidence item
+- **No Repetition:** Each section should cover DISTINCT aspects - don''t repeat the same point across sections
 
 Provide insights on:
 
@@ -62,27 +74,33 @@ Provide insights on:
    - Who initiates difficult conversations?
 
 5. **Repair & Recovery**:
-   - After tension, how do they reconnect?
+   - ONLY cover what happens AFTER conflicts end - how they reconnect and make up
    - Repair strategies: direct apology, humor, gifts/gestures, time/space then return, pretend nothing happened
    - Who initiates repair more often?
    - Timeframe: immediate, hours, days
+   - BOUNDARY: This is post-conflict reconnection, not behaviors during conflict (that''s Positive Behaviors)
    - Provide 2-3 evidence items showing the repair process
+   - Focus on the transition from tension back to affection
 
 6. **Positive Conflict Behaviors**:
-   - What do they do WELL during disagreements?
-   - Examples: staying respectful, validating feelings, taking breaks, using "I feel" statements, humor to diffuse
+   - What do they do WELL DURING active disagreements/conflicts?
+   - Examples: staying respectful, validating feelings, taking breaks, using "I feel" statements, humor to diffuse tension
    - Identify 2-3 positive behaviors with evidence items
-   - Celebrate healthy patterns
+   - BOUNDARY: Only behaviors happening DURING conflicts, not after (that''s Repair & Recovery) or during external stress (that''s Stress Support)
 
 7. **Destructive Patterns** (if any):
    - Red flags: name-calling, bringing up past, "you always/never", silent treatment >24hrs, threats
-   - If none: celebrate this explicitly
+   - If none: celebrate this explicitly (don''t invent problems)
    - Provide evidence items if patterns exist
+   - Be honest: if the chat is too short or conflicts are minor, say so
 
 8. **Stress Support**:
-   - When one person is stressed by external factors (work, family, health), how does partner respond?
-   - Supportive responses vs adding pressure
-   - Provide 2-3 evidence items showing support in action
+   - ONLY cover support during EXTERNAL stressors (work, family, health issues, personal struggles)
+   - NOT conflict-related stress - that belongs in other sections
+   - How does each partner respond when the other faces external pressure?
+   - BOUNDARY: This is about life stress support, not conflict support
+   - Provide 2-3 evidence items showing external stress support in action
+   - If no external stress visible in chat, acknowledge briefly rather than inventing scenarios
 
 9. **Growth Recommendations**:
    - Provide 2-3 specific, actionable suggestions based on observed patterns
@@ -93,9 +111,22 @@ Provide insights on:
 - Be extremely careful with interpretation - not every "but" is conflict
 - Never catastrophize or pathologize normal couple disagreements
 - If conflicts are healthy/minor, celebrate this (most couples fight!)
-- Some couples genuinely don''t fight in text - acknowledge this
+- Some couples genuinely don''t fight in text - acknowledge this honestly
 - Cultural context: Indian couples may handle conflict differently (family involvement, indirect communication)
 - Always end on a hopeful, constructive note
+
+**CRITICAL ANTI-REPETITION RULES:**
+1. Stress Support = ONLY external stressors (work, family, health) - NOT conflict support
+2. Positive Behaviors = ONLY during active conflicts - NOT after conflicts end
+3. Repair & Recovery = ONLY post-conflict reconnection - NOT during conflict
+4. Don''t repeat the same example across multiple sections
+5. If a behavior fits multiple categories, pick the MOST relevant one
+
+**LENGTH & QUALITY RULES:**
+- Short chat with few conflicts? Generate proportionally shorter insights - don''t pad with speculation
+- Can''t find enough evidence? Say so honestly rather than inventing patterns
+- Quality over quantity - better to have 2 solid insights than 5 weak ones
+- Each description should add NEW information, not restate what was already said
 
 **Output:** Return JSON matching the provided schema.',
   true,

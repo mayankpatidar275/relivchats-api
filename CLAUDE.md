@@ -265,16 +265,27 @@ src/
 
 **Critical detail**: The codebase uses different connection pooling strategies:
 
-- **API/Web (FastAPI)**: `QueuePool` with `pool_size=2, max_overflow=0` (src/database.py)
-  - Connection pooling for HTTP requests
-  - Set via environment detection (not Celery worker)
+- **API/Web (FastAPI)**: Two separate `QueuePool` engines (sync + async), each with `pool_size=10, max_overflow=5`
+  - Sync engine (`SessionLocal`): used by credits/service.py and startup health check
+  - Async engine (`async_session`): used by all routers via `get_async_db()`
+  - Up to 20 persistent connections held open, 30 max under burst load
 
 - **Celery Workers**: `NullPool` (no pooling)
-  - Each task gets fresh connection, closes immediately
+  - Each task opens a fresh connection and closes it immediately
   - Triggered by `CELERY_WORKER=true` environment variable
   - Prevents connection exhaustion in worker processes
 
-**Important**: Always set `CELERY_WORKER=true` when starting Celery workers, or connection pooling will exhaust database.
+**Important**: Always set `CELERY_WORKER=true` when starting Celery workers, or the wrong engine (QueuePool) will be used.
+
+### Neon Database & Compute Hours
+
+**Scale-to-Zero**: Neon suspends compute after 5 minutes of inactivity, saving compute hours.
+
+**Keepalive (currently DISABLED)**: `_neon_keepalive()` in `main.py` is commented out.
+- When enabled: pings DB every 4 min to prevent suspension — but burns through Neon's 100 hr/month free tier in ~4 days
+- When disabled (current): Neon sleeps after idle, first request after idle gets ~500ms cold start
+- `pool_pre_ping=True` on both engines handles stale connections automatically when Neon wakes up
+- **Re-enable only if upgrading to a paid Neon plan** where compute hours are not a constraint
 
 ---
 
@@ -515,7 +526,7 @@ Ensure these are set in production:
 
 ### Scaling Considerations
 - **Celery**: Increase `worker_concurrency` (currently 1 for long-running tasks)
-- **Database**: Monitor connection pool with `max_overflow=0` (no spikes)
+- **Database**: Monitor connection pool with `GET /health/db-pool` (pool_size=10, max_overflow=5 per engine)
 - **Qdrant**: Batch size capped at 100 (see `QDRANT_BATCH_SIZE`)
 - **Gemini**: Rate limits ~300 req/min (handle with retry backoff)
 

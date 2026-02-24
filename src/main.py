@@ -69,30 +69,27 @@ def _scrub_sensitive_data(event: dict, hint: dict = None) -> dict:
     return event
 
 
-async def _neon_keepalive():
-    """
-    Background task to keep Neon compute from suspending.
-
-    Neon's Scale-to-Zero suspends compute after 5 minutes of inactivity.
-    This task runs a lightweight health check every 4 minutes in production.
-    """
-    if settings.ENVIRONMENT != "production":
-        return
-
-    try:
-        from .database import async_session
-        from sqlalchemy import text
-
-        while True:
-            try:
-                await asyncio.sleep(240)  # Run every 4 minutes
-                async with async_session() as session:
-                    await session.execute(text("SELECT 1"))
-                logger.debug("Neon keepalive: connection refreshed")
-            except Exception as e:
-                logger.warning(f"Neon keepalive error: {e}")
-    except Exception as e:
-        logger.error(f"Failed to start Neon keepalive task: {e}")
+# NOTE: Keepalive disabled to preserve Neon free-tier compute hours (100 hrs/month).
+# Neon's Scale-to-Zero will suspend after 5 min idle — first request gets ~500ms cold start.
+# pool_pre_ping=True on both engines handles stale connections automatically on wake-up.
+# Re-enable if upgrading to a paid Neon plan where compute hours are not a concern.
+#
+# async def _neon_keepalive():
+#     if settings.ENVIRONMENT != "production":
+#         return
+#     try:
+#         from .database import async_session
+#         from sqlalchemy import text
+#         while True:
+#             try:
+#                 await asyncio.sleep(240)  # Run every 4 minutes
+#                 async with async_session() as session:
+#                     await session.execute(text("SELECT 1"))
+#                 logger.debug("Neon keepalive: connection refreshed")
+#             except Exception as e:
+#                 logger.warning(f"Neon keepalive error: {e}")
+#     except Exception as e:
+#         logger.error(f"Failed to start Neon keepalive task: {e}")
 
 
 @asynccontextmanager
@@ -145,10 +142,8 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"⚠ Redis connection failed: {e}")
 
-    # Start Neon keepalive task (prevents Scale-to-Zero suspension in production)
-    _app_state["keepalive_task"] = asyncio.create_task(_neon_keepalive())
-    if settings.ENVIRONMENT == "production":
-        logger.info("✓ Neon keepalive task started (prevents Scale-to-Zero suspension)")
+    # Neon keepalive disabled — Scale-to-Zero active to preserve compute hours
+    # _app_state["keepalive_task"] = asyncio.create_task(_neon_keepalive())
 
     # Initialize Sentry (if configured)
     if settings.SENTRY_DSN:
@@ -215,13 +210,13 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down RelivChats API")
     logger.info("="*80)
 
-    # Cancel keepalive task
-    if _app_state["keepalive_task"]:
-        _app_state["keepalive_task"].cancel()
-        try:
-            await _app_state["keepalive_task"]
-        except asyncio.CancelledError:
-            logger.debug("Neon keepalive task cancelled")
+    # Keepalive task disabled — nothing to cancel
+    # if _app_state["keepalive_task"]:
+    #     _app_state["keepalive_task"].cancel()
+    #     try:
+    #         await _app_state["keepalive_task"]
+    #     except asyncio.CancelledError:
+    #         logger.debug("Neon keepalive task cancelled")
 
 
 # ============================================================================

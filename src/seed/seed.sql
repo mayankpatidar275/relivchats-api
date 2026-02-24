@@ -85,7 +85,7 @@ Analyze how this couple handles disagreements, tension, and stressful situations
 **FORMATTING GUIDELINES:**
 - **Tone:** Write like a warm, insightful relationship counselor - supportive and constructive, not clinical or judgmental
 - **Length:** Keep all descriptions concise (2-3 sentences maximum)
-- **Equal Treatment:** Use both participants'' names equally throughout - NEVER use "you" or single out one person
+- **Equal Treatment:** Use all participants'' names equally throughout - NEVER use "you" or single out one person
 - **Evidence Context:** Describe the SITUATION, not timestamps (Good: "During a discussion about project delays" | Bad: "Messages at 2pm")
 - **Evidence Exchange:** Include 2-4 actual messages per evidence item for readability
 - **Focus:** Emphasize patterns and growth opportunities, not problems

@@ -41,9 +41,10 @@
 --     1
 -- );
 
+-- Romantic
 INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
 VALUES (
-    gen_random_uuid(), -- FIX: Explicitly generate the UUID for the primary key
+    gen_random_uuid(),
     (SELECT id FROM analysis_categories WHERE name = 'romantic'),
     (SELECT id FROM insight_types WHERE name = 'conflict_resolution'),
     1
@@ -51,17 +52,92 @@ VALUES (
 
 INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
 VALUES (
-    gen_random_uuid(), -- FIX: Explicitly generate the UUID for the primary key
+    gen_random_uuid(),
     (SELECT id FROM analysis_categories WHERE name = 'romantic'),
     (SELECT id FROM insight_types WHERE name = 'future_planning'),
+    2
+);
+
+INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
+VALUES (
+    gen_random_uuid(),
+    (SELECT id FROM analysis_categories WHERE name = 'romantic'),
+    (SELECT id FROM insight_types WHERE name = 'playfulness_romance'),
+    3
+);
+
+-- Friendship
+INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
+VALUES (
+    gen_random_uuid(),
+    (SELECT id FROM analysis_categories WHERE name = 'friendship'),
+    (SELECT id FROM insight_types WHERE name = 'friendship_trust_loyalty'),
     1
 );
 
 INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
 VALUES (
-    gen_random_uuid(), -- FIX: Explicitly generate the UUID for the primary key
-    (SELECT id FROM analysis_categories WHERE name = 'romantic'),
-    (SELECT id FROM insight_types WHERE name = 'playfulness_romance'),
+    gen_random_uuid(),
+    (SELECT id FROM analysis_categories WHERE name = 'friendship'),
+    (SELECT id FROM insight_types WHERE name = 'friendship_support_dynamics'),
+    2
+);
+
+INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
+VALUES (
+    gen_random_uuid(),
+    (SELECT id FROM analysis_categories WHERE name = 'friendship'),
+    (SELECT id FROM insight_types WHERE name = 'friendship_vitality'),
+    3
+);
+
+-- Family
+INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
+VALUES (
+    gen_random_uuid(),
+    (SELECT id FROM analysis_categories WHERE name = 'family'),
+    (SELECT id FROM insight_types WHERE name = 'family_dynamics'),
     1
+);
+
+INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
+VALUES (
+    gen_random_uuid(),
+    (SELECT id FROM analysis_categories WHERE name = 'family'),
+    (SELECT id FROM insight_types WHERE name = 'family_emotional_climate'),
+    2
+);
+
+INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
+VALUES (
+    gen_random_uuid(),
+    (SELECT id FROM analysis_categories WHERE name = 'family'),
+    (SELECT id FROM insight_types WHERE name = 'family_conflict_patterns'),
+    3
+);
+
+-- Workplace
+INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
+VALUES (
+    gen_random_uuid(),
+    (SELECT id FROM analysis_categories WHERE name = 'workplace'),
+    (SELECT id FROM insight_types WHERE name = 'workplace_communication'),
+    1
+);
+
+INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
+VALUES (
+    gen_random_uuid(),
+    (SELECT id FROM analysis_categories WHERE name = 'workplace'),
+    (SELECT id FROM insight_types WHERE name = 'workplace_collaboration'),
+    2
+);
+
+INSERT INTO category_insight_types (id, category_id, insight_type_id, display_order)
+VALUES (
+    gen_random_uuid(),
+    (SELECT id FROM analysis_categories WHERE name = 'workplace'),
+    (SELECT id FROM insight_types WHERE name = 'workplace_relationship_health'),
+    3
 );
 

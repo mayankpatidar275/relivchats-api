@@ -50,9 +50,17 @@ CONFIG = {
     'DOUBLE_TEXT_THRESHOLD': 2,
     'MAX_RESPONSE_TIME_HOURS': 4,
     'MAX_LINKS_STORED': 1000,
-    'HINDI_STOPWORDS': ['hai', 'hain', 'ka', 'ki', 'ke', 'ko', 'me', 'mein', 'se', 'ne', 'par', 
-                        'aur', 'kya', 'toh', 'bhi', 'tha', 'thi', 'the', 'ho', 'hum', 'tu', 
-                        'yeh', 'woh', 'is', 'us', 'ek', 'nahi', 'kyu', 'kyun', 'kaise']
+    'HINDI_STOPWORDS': ['hai', 'hain', 'ka', 'ki', 'ke', 'ko', 'me', 'mein', 'se', 'ne', 'par',
+                        'aur', 'kya', 'toh', 'bhi', 'tha', 'thi', 'the', 'ho', 'hum', 'tu',
+                        'yeh', 'woh', 'is', 'us', 'ek', 'nahi', 'kyu', 'kyun', 'kaise'],
+    # WhatsApp system/call message noise words to exclude from word frequency
+    'WHATSAPP_NOISE_WORDS': [
+        'missed', 'call', 'voice', 'video', 'omitted', 'media', 'audio',
+        'sticker', 'gif', 'document', 'contact', 'location', 'deleted',
+        'message', 'attached', 'null', 'incoming', 'outgoing', 'ended',
+        'declined', 'cancelled', 'unavailable', 'calling', 'ringing',
+        'image', 'photo', 'file', 'shared', 'live',
+    ]
 }
 
 
@@ -841,15 +849,16 @@ def parse_whatsapp_file(file_path: str) -> Tuple[whatstk.WhatsAppChat, List[str]
 # ============================================================================
 
 def get_stopwords() -> set:
-    """Get combined English and Hindi stopwords"""
+    """Get combined English, Hindi and WhatsApp noise stopwords"""
     try:
         english_stopwords = set(stopwords.words('english'))
     except:  # noqa: E722
         logger.warning("Failed to load English stopwords")
         english_stopwords = set()
-    
+
     hindi_stopwords = set(CONFIG['HINDI_STOPWORDS'])
-    return english_stopwords.union(hindi_stopwords)
+    whatsapp_noise = set(CONFIG['WHATSAPP_NOISE_WORDS'])
+    return english_stopwords.union(hindi_stopwords).union(whatsapp_noise)
 
 
 def extract_emojis(text: str) -> List[str]:
@@ -882,9 +891,23 @@ def is_media_message(text: str) -> bool:
     return '<Media omitted>' in str(text) or '<attached:' in str(text).lower()
 
 
+def is_call_message(text: str) -> bool:
+    """Check if message is a WhatsApp call notification (missed/incoming/outgoing calls)"""
+    if pd.isna(text):
+        return False
+    text_lower = str(text).lower().strip()
+    call_patterns = [
+        r'^(missed|incoming|outgoing)\s+(voice|video)\s+call',
+        r'^(voice|video)\s+call',
+        r'^you\s+(called|missed)',
+        r'^(null|none)$',
+    ]
+    return any(re.search(p, text_lower) for p in call_patterns)
+
+
 def extract_words(text: str, stopwords_set: set) -> List[str]:
     """Extract words from text, filtering stopwords"""
-    if pd.isna(text) or is_deleted_message(text) or is_media_message(text):
+    if pd.isna(text) or is_deleted_message(text) or is_media_message(text) or is_call_message(text):
         return []
     
     # Remove URLs, emojis, and special characters

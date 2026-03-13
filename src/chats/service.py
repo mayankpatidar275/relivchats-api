@@ -861,11 +861,21 @@ def get_stopwords() -> set:
     return english_stopwords.union(hindi_stopwords).union(whatsapp_noise)
 
 
+_SKIN_TONE_MODIFIERS = frozenset([
+    '\U0001F3FB', '\U0001F3FC', '\U0001F3FD', '\U0001F3FE', '\U0001F3FF',
+])
+
 def extract_emojis(text: str) -> List[str]:
-    """Extract all emojis from text"""
+    """Extract emojis, normalizing skin tone variants to their base emoji.
+
+    e.g. 🙏🏼 and 🙏 both count as 🙏 so usage totals stay meaningful.
+    """
     if pd.isna(text):
         return []
-    return [c for c in text if c in emoji.EMOJI_DATA]
+    return [
+        ''.join(c for c in item['emoji'] if c not in _SKIN_TONE_MODIFIERS)
+        for item in emoji.emoji_list(text)
+    ]
 
 
 def extract_links(text: str) -> List[str]:

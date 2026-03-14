@@ -107,6 +107,7 @@ jobs:
             CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
             EXPOSE_ERROR_DETAILS=${{ secrets.EXPOSE_ERROR_DETAILS }}
             SUPPORT_EMAIL=${{ secrets.SUPPORT_EMAIL }}
+            ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}
 
             # ============================================================================
             # Docker

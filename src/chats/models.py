@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from ..database import Base
+from ..encryption import EncryptedText, EncryptedJSON
 import uuid
 
 class Chat(Base):
@@ -10,11 +11,11 @@ class Chat(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(String, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
-    title = Column(String, nullable=True)  # E.g., The name of the chat group
-    participants = Column(Text, nullable=True)  # JSON string of participant names
-    chat_metadata = Column(JSON, nullable=True)  # All pre-computed stats
-    partner_name = Column(String, nullable=True)  # Extracted partner name
-    user_display_name = Column(String, nullable=True)  # User's selected display name
+    title = Column(EncryptedText, nullable=True)  # E.g., The name of the chat group
+    participants = Column(EncryptedText, nullable=True)  # JSON string of participant names
+    chat_metadata = Column(EncryptedJSON, nullable=True)  # All pre-computed stats
+    partner_name = Column(EncryptedText, nullable=True)  # Extracted partner name
+    user_display_name = Column(EncryptedText, nullable=True)  # User's selected display name
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     status = Column(String, default="processing")  # 'processing', 'completed', 'failed'
     error_log = Column(Text, nullable=True)  # Store parsing errors for debugging
@@ -62,8 +63,8 @@ class Message(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
-    sender = Column(String, nullable=True)
-    content = Column(Text, nullable=False)
+    sender = Column(EncryptedText, nullable=True)
+    content = Column(EncryptedText, nullable=False)
     timestamp = Column(TIMESTAMP(timezone=True), nullable=False)
 
     chat = relationship("Chat", back_populates="messages")

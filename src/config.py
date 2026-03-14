@@ -6,6 +6,12 @@ from pydantic import Field
 class Settings(BaseSettings):
     DATABASE_URL: str
     CLERK_SECRET_KEY: str
+
+    # Field-level encryption key (Fernet).
+    # Generate once with:
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Store in .env — never commit the actual key.
+    ENCRYPTION_KEY: str
     MAX_UPLOAD_SIZE_MB: int = 25
     MAX_UPLOAD_SIZE_BYTES: int = MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
@@ -115,7 +121,7 @@ class Settings(BaseSettings):
     EXPOSE_ERROR_DETAILS: bool = True
     
     # Support contact for error messages
-    SUPPORT_EMAIL: str = "mayankpatidar275@gmail.com"
+    SUPPORT_EMAIL: str = "relivchats@gmail.com"
     
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra="ignore"  # 👈 allows extra env vars without raising errors
 )

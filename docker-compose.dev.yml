@@ -54,6 +54,7 @@ services:
       - QDRANT_TIMEOUT=${QDRANT_TIMEOUT}
       - QDRANT_BATCH_SIZE=${QDRANT_BATCH_SIZE}
       - QDRANT_MAX_RETRIES=${QDRANT_MAX_RETRIES}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     volumes:
       - ./uploads:/app/uploads
     depends_on:
@@ -120,6 +121,7 @@ services:
       - QDRANT_TIMEOUT=${QDRANT_TIMEOUT}
       - QDRANT_BATCH_SIZE=${QDRANT_BATCH_SIZE}
       - QDRANT_MAX_RETRIES=${QDRANT_MAX_RETRIES}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     volumes:
       - ./uploads:/app/uploads
     depends_on:
@@ -164,6 +166,7 @@ services:
       - QDRANT_TIMEOUT=${QDRANT_TIMEOUT}
       - QDRANT_BATCH_SIZE=${QDRANT_BATCH_SIZE}
       - QDRANT_MAX_RETRIES=${QDRANT_MAX_RETRIES}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     depends_on:
       redis:
         condition: service_healthy
@@ -208,6 +211,7 @@ services:
       - QDRANT_TIMEOUT=${QDRANT_TIMEOUT}
       - QDRANT_BATCH_SIZE=${QDRANT_BATCH_SIZE}
       - QDRANT_MAX_RETRIES=${QDRANT_MAX_RETRIES}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     depends_on:
       redis:
         condition: service_healthy

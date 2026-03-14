@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
+cryptography  # Field-level encryption (Fernet/AES) for sensitive database columns
 sqlalchemy
 alembic
 psycopg2-binary  # For PostgreSQL database connection

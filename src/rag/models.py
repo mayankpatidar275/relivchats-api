@@ -1,11 +1,11 @@
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Enum, Boolean, TIMESTAMP, JSON, Integer, Index
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
+from ..encryption import EncryptedText, EncryptedJSON
 import uuid
 import enum
-from sqlalchemy.dialects.postgresql import JSONB
 
 # TODO: move these to categories folder
 class InsightStatus(enum.Enum):
@@ -85,7 +85,7 @@ class Insight(Base):
     insight_type_id = Column(UUID(as_uuid=True), ForeignKey("insight_types.id", ondelete="CASCADE"), nullable=False)
     
     # Content
-    content = Column(JSON, nullable=True)  # Structured insight data
+    content = Column(EncryptedJSON, nullable=True)  # Structured insight data
     status = Column(Enum(InsightStatus), default=InsightStatus.PENDING, nullable=False)
     error_message = Column(Text, nullable=True)
     
@@ -186,7 +186,7 @@ class AIMessage(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     conversation_id = Column(UUID(as_uuid=True), ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False)
     message_type = Column(Enum(MessageType), nullable=False)
-    content = Column(Text, nullable=False)
+    content = Column(EncryptedText, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     
     # Relationships
